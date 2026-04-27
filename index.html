@@ -83,21 +83,48 @@
 
 
   /* PRODUCTOS */
-  .productos-section{background:var(--white)}
-  .productos-header{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:3rem;flex-wrap:wrap;gap:1rem}
-  .productos-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1.5px;background:transparent}
-  .producto-card{background:var(--white);cursor:pointer;overflow:hidden;position:relative;aspect-ratio:3/4;transition:transform .3s}
-  .producto-card:hover .prod-overlay{opacity:1}
-  .producto-card:hover .prod-img-placeholder{transform:scale(1.04)}
-  .prod-img-placeholder{width:100%;height:100%;transition:transform .4s;overflow:hidden;}
-  .prod-img-placeholder img{width:100%;height:100%;object-fit:cover;display:block;}
-  .prod-overlay{position:absolute;inset:0;background:rgba(42,18,24,0.6);opacity:0;transition:opacity .3s;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;padding:2rem}
-  .prod-overlay h3{font-family:'Cormorant Garamond',serif;font-size:26px;font-weight:300;color:white;text-align:center}
-  .prod-overlay .ver-mas{font-size:11px;letter-spacing:3px;text-transform:uppercase;color:var(--rose);border:0.5px solid var(--rose);padding:10px 24px;cursor:pointer;transition:background .2s}
-  .prod-overlay .ver-mas:hover{background:var(--rose-deep)}
-  .prod-info{position:absolute;bottom:0;left:0;right:0;padding:1.5rem;background:linear-gradient(to top,rgba(42,18,24,0.7),transparent)}
-  .prod-name{font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:300;color:white}
-  .prod-tipo{font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--rose)}
+.productos-section{background:var(--white)}
+.productos-header{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:3rem;flex-wrap:wrap;gap:1rem}
+
+/* Carrete */
+.carrusel-wrapper{position:relative}
+.carrusel-track-outer{overflow:hidden;border-radius:4px}
+.carrusel-track{display:flex;gap:20px;transition:transform .45s cubic-bezier(.4,0,.2,1);will-change:transform}
+.producto-card{flex:0 0 calc(33.333% - 14px);cursor:pointer;overflow:hidden;position:relative;aspect-ratio:3/4;border-radius:4px;transition:transform .3s}
+.producto-card:hover .prod-overlay{opacity:1}
+.producto-card:hover .prod-img-placeholder{transform:scale(1.04)}
+.prod-img-placeholder{width:100%;height:100%;transition:transform .4s;overflow:hidden}
+.prod-img-placeholder img{width:100%;height:100%;object-fit:cover;display:block}
+.prod-overlay{position:absolute;inset:0;background:rgba(42,18,24,0.6);opacity:0;transition:opacity .3s;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;padding:2rem}
+.prod-overlay h3{font-family:'Cormorant Garamond',serif;font-size:26px;font-weight:300;color:white;text-align:center}
+.prod-overlay .ver-mas{font-size:11px;letter-spacing:3px;text-transform:uppercase;color:var(--rose);border:0.5px solid var(--rose);padding:10px 24px;cursor:pointer;transition:background .2s}
+.prod-overlay .ver-mas:hover{background:var(--rose-deep)}
+.prod-info{position:absolute;bottom:0;left:0;right:0;padding:1.5rem;background:linear-gradient(to top,rgba(42,18,24,0.7),transparent)}
+.prod-name{font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:300;color:white}
+.prod-tipo{font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--rose)}
+
+/* Flechas */
+.carrusel-btn{position:absolute;top:50%;transform:translateY(-50%);z-index:10;width:44px;height:44px;border-radius:50%;border:1px solid var(--rose-mid);background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s;box-shadow:0 2px 12px rgba(0,0,0,0.08)}
+.carrusel-btn:hover{background:var(--rose-deep);border-color:var(--rose-deep)}
+.carrusel-btn:hover svg{stroke:white}
+.carrusel-btn svg{stroke:var(--rose-deep);fill:none;stroke-width:2;width:18px;height:18px;transition:stroke .2s}
+.carrusel-btn.prev{left:-22px}
+.carrusel-btn.next{right:-22px}
+.carrusel-btn:disabled{opacity:0.3;cursor:default;pointer-events:none}
+
+/* Dots */
+.carrusel-dots{display:flex;justify-content:center;gap:8px;margin-top:2rem}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--rose-mid);transition:all .3s;cursor:pointer}
+.dot.active{width:24px;border-radius:3px;background:var(--rose-deep)}
+
+@media(max-width:768px){
+  .producto-card{flex:0 0 calc(85% - 10px)}
+  .carrusel-btn.prev{left:-8px}
+  .carrusel-btn.next{right:-8px}
+}
+@media(min-width:769px) and (max-width:1024px){
+  .producto-card{flex:0 0 calc(50% - 10px)}
+}
 
   /* MODAL PRODUCTO */
   .modal-overlay{position:fixed;inset:0;background:rgba(42,18,24,0.7);z-index:200;display:none;align-items:center;justify-content:center;padding:2rem}
@@ -247,7 +274,18 @@
         <h2 class="section-title">Nuestras creaciones</h2>
       </div>
     </div>
-    <div class="productos-grid" id="productos-grid"></div>
+    <div class="carrusel-wrapper">
+      <button class="carrusel-btn prev" id="btn-prev" onclick="moverCarrusel(-1)">
+        <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>
+      <div class="carrusel-track-outer">
+        <div class="carrusel-track" id="carrusel-track"></div>
+      </div>
+      <button class="carrusel-btn next" id="btn-next" onclick="moverCarrusel(1)">
+        <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+      </button>
+    </div>
+    <div class="carrusel-dots" id="carrusel-dots"></div>
   </div>
 </section>
 
@@ -367,8 +405,37 @@ const productos = [
   }
 ];
 
-const grid = document.getElementById('productos-grid');
-productos.forEach((p,i)=>{
+// Carrusel
+let posActual = 0;
+
+function visiblePorPantalla(){
+  if(window.innerWidth <= 768) return 1;
+  if(window.innerWidth <= 1024) return 2;
+  return 3;
+}
+
+function buildCarrusel(){
+  const track = document.getElementById('carrusel-track');
+  const visible = visiblePorPantalla();
+
+  track.innerHTML = '';
+
+  // Clones del final al inicio
+  const clonesInicio = productos.slice(-visible);
+  clonesInicio.forEach(p => track.appendChild(crearCard(p)));
+
+  // Productos reales
+  productos.forEach(p => track.appendChild(crearCard(p)));
+
+  // Clones del inicio al final
+  const clonesFinal = productos.slice(0, visible);
+  clonesFinal.forEach(p => track.appendChild(crearCard(p)));
+
+  posActual = visible; // arranca en el bloque real
+  actualizarCarrusel(false);
+}
+
+function crearCard(p){
   const card = document.createElement('div');
   card.className = 'producto-card';
   card.innerHTML = `
@@ -383,32 +450,80 @@ productos.forEach((p,i)=>{
       <h3>${p.nombre}</h3>
       <div class="ver-mas">Ver más</div>
     </div>`;
-  card.addEventListener('click',()=>openModal(p));
-  grid.appendChild(card);
+  card.addEventListener('click', () => openModal(p));
+  return card;
+}
+
+function actualizarCarrusel(animar = true){
+  const track = document.getElementById('carrusel-track');
+  const cardW = track.children[0].getBoundingClientRect().width;
+  const gap = 20;
+
+  track.style.transition = animar ? 'transform .45s cubic-bezier(.4,0,.2,1)' : 'none';
+  track.style.transform = `translateX(-${posActual * (cardW + gap)}px)`;
+}
+
+function moverCarrusel(dir){
+  const visible = visiblePorPantalla();
+  const total = productos.length;
+
+  posActual += dir;
+  actualizarCarrusel(true);
+
+  const track = document.getElementById('carrusel-track');
+
+  track.addEventListener('transitionend', () => {
+    // Si me fui al final (clon)
+    if(posActual >= total + visible){
+      posActual = visible;
+      actualizarCarrusel(false);
+    }
+
+    // Si me fui al inicio (clon)
+    if(posActual < visible){
+      posActual = total + visible - 1;
+      actualizarCarrusel(false);
+    }
+  }, {once:true});
+}
+
+// Swipe táctil
+let touchStartX = 0;
+document.getElementById('carrusel-track') && (()=>{})(); // placeholder
+document.addEventListener('DOMContentLoaded', () => {
+  buildCarrusel();
+  const track = document.getElementById('carrusel-track');
+  track.addEventListener('touchstart', e => { touchStartX = e.touches[0].clientX; }, {passive:true});
+  track.addEventListener('touchend',   e => {
+    const diff = touchStartX - e.changedTouches[0].clientX;
+    if(Math.abs(diff) > 40) moverCarrusel(diff > 0 ? 1 : -1);
+  });
 });
 
+window.addEventListener('resize', () => irA(posActual));
+
+// Modal
 function openModal(p){
-  document.getElementById('modal-tipo').textContent = p.tipo;
+  document.getElementById('modal-tipo').textContent  = p.tipo;
   document.getElementById('modal-title').textContent = p.nombre;
-  document.getElementById('modal-desc').textContent = p.desc;
-  const img = document.getElementById('modal-img');
-  img.innerHTML = `<img src="${p.img}" style="width:100%;height:100%;object-fit:cover;">`;
+  document.getElementById('modal-desc').textContent  = p.desc;
+  document.getElementById('modal-img').innerHTML = `<img src="${p.img}" style="width:100%;height:100%;object-fit:cover;">`;
   const msg = encodeURIComponent("Hola! Vi su página y me gustaría hacer un pedido.");
   document.getElementById('modal-wa').href = `https://wa.me/541134521808?text=${msg}`;
   document.getElementById('modal').classList.add('active');
-  document.body.style.overflow='hidden';
+  document.body.style.overflow = 'hidden';
 }
 
 function closeModal(e){
-  if(e.target===document.getElementById('modal')){
+  if(e.target === document.getElementById('modal')){
     document.getElementById('modal').classList.remove('active');
-    document.body.style.overflow='';
+    document.body.style.overflow = '';
   }
 }
 
-document.querySelector('.modal-close').addEventListener('click',()=>{
+document.querySelector('.modal-close').addEventListener('click', () => {
   document.getElementById('modal').classList.remove('active');
-  document.body.style.overflow='';
+  document.body.style.overflow = '';
 });
 
 function scrollToSection(id){
