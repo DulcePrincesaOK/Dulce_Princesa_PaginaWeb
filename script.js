@@ -62,8 +62,6 @@ const params = new URLSearchParams(location.search);
 const ADMIN_REQUEST = params.has('admin');
 let ADMIN_MODE = false;
 
-if(ADMIN_REQUEST){ pedirLoginAdmin(); }
-
 // ════════════════════════════════════════════════════════
 //  FIREBASE: cargar y guardar
 // ════════════════════════════════════════════════════════
@@ -104,6 +102,11 @@ function logoutAdmin(){ location.reload(); }
 //  INICIALIZAR
 // ════════════════════════════════════════════════════════
 async function inicializar(){
+  // Login PRIMERO, dentro del DOMContentLoaded, para que Android no pierda el evento
+  if(ADMIN_REQUEST){
+    pedirLoginAdmin();
+  }
+
   if(ADMIN_MODE){
     document.body.classList.add('admin-mode');
     document.getElementById('admin-bar').style.display = 'flex';
