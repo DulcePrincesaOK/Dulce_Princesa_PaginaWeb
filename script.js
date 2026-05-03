@@ -248,6 +248,12 @@ async function inicializar(){
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  // Recarga automática única en la primera visita
+  if(!sessionStorage.getItem('cargado')){
+    sessionStorage.setItem('cargado', '1');
+    location.reload();
+    return;
+  }
   applyConfig();
   inicializar();
   if(ADMIN_REQUEST){ pedirLoginAdmin(); }
