@@ -244,12 +244,9 @@ async function inicializar(){
     productos = productosDefault.map(p => ({...p}));
   }
   document.getElementById('carrusel-loading').style.display = 'none';
-  // Esperar dos frames para que el navegador termine el layout antes de medir los anchos
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      buildAllCarousels();
-    });
-  });
+  buildAllCarousels();
+  // Backup para móviles: reconstruir cuando el layout esté realmente listo
+  setTimeout(() => buildAllCarousels(), 400);
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -264,10 +261,7 @@ window.addEventListener('resize', () => {
   resizeTimer = setTimeout(() => buildAllCarousels(), 150);
 });
 
-// Reconstruir cuando TODAS las imágenes cargaron (crítico en Android)
-window.addEventListener('load', () => {
-  requestAnimationFrame(() => buildAllCarousels());
-});
+
 
 // ════════════════════════════════════════════════════════
 //  HELPERS
@@ -440,18 +434,23 @@ function actualizarCarrusel(catId, animar = true){
   const track = document.getElementById('carrusel-track-' + catId);
   if(!track || !track.children.length) return;
 
-  const card = track.children[0];
-  let cardW = card.getBoundingClientRect().width || card.offsetWidth;
+  // Usar el contenedor outer como fuente primaria (siempre disponible)
+  const outer = track.closest('.carrusel-track-outer');
+  const visible = visiblePorPantalla();
+  const gap = 20;
+  let cardW = 0;
 
-  // Fallback para Android: calcular desde el contenedor si sigue en 0
-  if(!cardW){
-    const outer = track.closest('.carrusel-track-outer');
-    if(outer) cardW = outer.offsetWidth / visiblePorPantalla();
+  if(outer && outer.offsetWidth){
+    cardW = (outer.offsetWidth - gap * (visible - 1)) / visible;
+  } else {
+    const card = track.children[0];
+    cardW = card.getBoundingClientRect().width || card.offsetWidth;
   }
+
   if(!cardW) return;
 
   track.style.transition = animar ? 'transform .45s cubic-bezier(.4,0,.2,1)' : 'none';
-  track.style.transform  = `translateX(-${posCarrusel[catId] * (cardW + 20)}px)`;
+  track.style.transform  = `translateX(-${posCarrusel[catId] * (cardW + gap)}px)`;
 }
 
 function moverCarrusel(catId, dir){
