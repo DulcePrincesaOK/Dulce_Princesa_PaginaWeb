@@ -438,35 +438,13 @@ function actualizarCarrusel(catId){
 function moverCarrusel(catId, dir){
   const prods   = carruselProds[catId] || [];
   const visible = visiblePorPantalla();
-  const total   = prods.length;
-  if(total <= visible) return;
+  if(prods.length <= visible) return;
+
+  posCarrusel[catId] = Math.max(0, Math.min((posCarrusel[catId] || 0) + dir, prods.length - visible));
 
   const track = document.getElementById('carrusel-track-' + catId);
   const outer = track?.closest('.carrusel-track-outer');
-  if(!outer) return;
-
-  const cardW = getCardWidth();
-  const paso  = cardW + 20;
-
-  posCarrusel[catId] = (posCarrusel[catId] || 0) + dir;
-
-  // Llegó al final → salto instantáneo al inicio y avanza uno
-  if(posCarrusel[catId] > total - visible){
-    outer.scrollTo({ left: 0, behavior: 'auto' });
-    posCarrusel[catId] = 1;
-    setTimeout(() => outer.scrollTo({ left: paso, behavior: 'smooth' }), 20);
-    return;
-  }
-
-  // Llegó al inicio → salto instantáneo al final y retrocede uno
-  if(posCarrusel[catId] < 0){
-    outer.scrollTo({ left: (total - visible) * paso, behavior: 'auto' });
-    posCarrusel[catId] = total - visible - 1;
-    setTimeout(() => outer.scrollTo({ left: posCarrusel[catId] * paso, behavior: 'smooth' }), 20);
-    return;
-  }
-
-  outer.scrollTo({ left: posCarrusel[catId] * paso, behavior: 'smooth' });
+  if(outer) outer.scrollLeft = posCarrusel[catId] * (getCardWidth() + 20);
 }
 
 // ════════════════════════════════════════════════════════
