@@ -264,6 +264,11 @@ window.addEventListener('resize', () => {
   resizeTimer = setTimeout(() => buildAllCarousels(), 150);
 });
 
+// Reconstruir cuando TODAS las imágenes cargaron (crítico en Android)
+window.addEventListener('load', () => {
+  requestAnimationFrame(() => buildAllCarousels());
+});
+
 // ════════════════════════════════════════════════════════
 //  HELPERS
 // ════════════════════════════════════════════════════════
@@ -434,7 +439,17 @@ function crearCard(p, esClonado){
 function actualizarCarrusel(catId, animar = true){
   const track = document.getElementById('carrusel-track-' + catId);
   if(!track || !track.children.length) return;
-  const cardW = track.children[0].getBoundingClientRect().width;
+
+  const card = track.children[0];
+  let cardW = card.getBoundingClientRect().width || card.offsetWidth;
+
+  // Fallback para Android: calcular desde el contenedor si sigue en 0
+  if(!cardW){
+    const outer = track.closest('.carrusel-track-outer');
+    if(outer) cardW = outer.offsetWidth / visiblePorPantalla();
+  }
+  if(!cardW) return;
+
   track.style.transition = animar ? 'transform .45s cubic-bezier(.4,0,.2,1)' : 'none';
   track.style.transform  = `translateX(-${posCarrusel[catId] * (cardW + 20)}px)`;
 }
