@@ -245,8 +245,6 @@ async function inicializar(){
   }
   document.getElementById('carrusel-loading').style.display = 'none';
   buildAllCarousels();
-  // Backup para móviles: reconstruir cuando el layout esté realmente listo
-  setTimeout(() => buildAllCarousels(), 400);
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -364,6 +362,7 @@ function buildTrack(catId, prods){
   if(!track || !prods.length) return;
 
   const visible = visiblePorPantalla();
+  const cardW   = getCardWidth();
 
   carruselProds[catId] = prods;
   track.innerHTML = '';
@@ -371,12 +370,13 @@ function buildTrack(catId, prods){
   const btnPrev = document.getElementById('btn-prev-' + catId);
   const btnNext = document.getElementById('btn-next-' + catId);
 
-  // Si hay ≤ productos que los slots visibles, mostrar estático sin clonar
+  const fijarAncho = card => { card.style.flex = `0 0 ${cardW}px`; return card; };
+
   if(prods.length <= visible){
-    prods.forEach(p => track.appendChild(crearCard(p, false)));
+    prods.forEach(p => track.appendChild(fijarAncho(crearCard(p, false))));
     posCarrusel[catId] = 0;
     track.style.transition = 'none';
-    track.style.transform = 'translateX(0)';
+    track.style.transform  = 'translateX(0)';
     if(btnPrev) btnPrev.style.display = 'none';
     if(btnNext) btnNext.style.display = 'none';
     return;
@@ -385,9 +385,9 @@ function buildTrack(catId, prods){
   if(btnPrev) btnPrev.style.display = '';
   if(btnNext) btnNext.style.display = '';
 
-  prods.slice(-visible).forEach(p => track.appendChild(crearCard(p, true)));
-  prods.forEach(p => track.appendChild(crearCard(p, false)));
-  prods.slice(0, visible).forEach(p => track.appendChild(crearCard(p, true)));
+  prods.slice(-visible).forEach(p => track.appendChild(fijarAncho(crearCard(p, true))));
+  prods.forEach(p => track.appendChild(fijarAncho(crearCard(p, false))));
+  prods.slice(0, visible).forEach(p => track.appendChild(fijarAncho(crearCard(p, true))));
 
   posCarrusel[catId] = visible;
   actualizarCarrusel(catId, false);
@@ -430,27 +430,20 @@ function crearCard(p, esClonado){
   return card;
 }
 
+function getCardWidth(){
+  const gap = 20;
+  const visible = visiblePorPantalla();
+  const padding = window.innerWidth <= 768 ? 48 : 128;
+  const containerW = Math.min(window.innerWidth - padding, 1100);
+  return (containerW - gap * (visible - 1)) / visible;
+}
+
 function actualizarCarrusel(catId, animar = true){
   const track = document.getElementById('carrusel-track-' + catId);
   if(!track || !track.children.length) return;
-
-  // Usar el contenedor outer como fuente primaria (siempre disponible)
-  const outer = track.closest('.carrusel-track-outer');
-  const visible = visiblePorPantalla();
-  const gap = 20;
-  let cardW = 0;
-
-  if(outer && outer.offsetWidth){
-    cardW = (outer.offsetWidth - gap * (visible - 1)) / visible;
-  } else {
-    const card = track.children[0];
-    cardW = card.getBoundingClientRect().width || card.offsetWidth;
-  }
-
-  if(!cardW) return;
-
+  const cardW = getCardWidth();
   track.style.transition = animar ? 'transform .45s cubic-bezier(.4,0,.2,1)' : 'none';
-  track.style.transform  = `translateX(-${posCarrusel[catId] * (cardW + gap)}px)`;
+  track.style.transform  = `translateX(-${posCarrusel[catId] * (cardW + 20)}px)`;
 }
 
 function moverCarrusel(catId, dir){
