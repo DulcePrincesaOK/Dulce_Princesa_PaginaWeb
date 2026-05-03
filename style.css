@@ -95,9 +95,11 @@
 
 /* Carrete */
 .carrusel-wrapper{position:relative}
-.carrusel-track-outer{overflow:hidden;border-radius:4px}
-.carrusel-track{display:flex;gap:20px;transition:transform .45s cubic-bezier(.4,0,.2,1);will-change:transform}
-.producto-card{flex:0 0 calc(33.333% - 14px);cursor:pointer;overflow:hidden;position:relative;aspect-ratio:3/4;border-radius:4px;transition:transform .3s}
+/* DESPUÉS */
+.carrusel-track-outer{overflow-x:auto;border-radius:4px;scroll-snap-type:x mandatory;scrollbar-width:none;-ms-overflow-style:none;scroll-behavior:smooth}
+.carrusel-track-outer::-webkit-scrollbar{display:none}
+.carrusel-track{display:flex;gap:20px}
+.producto-card{flex:0 0 calc(33.333% - 14px);scroll-snap-align:start;cursor:pointer;overflow:hidden;position:relative;aspect-ratio:3/4;border-radius:4px;transition:transform .3s}
 .producto-card:hover .prod-overlay{opacity:1}
 .producto-card:hover .prod-img-placeholder{transform:scale(1.04)}
 .prod-img-placeholder{width:100%;height:100%;transition:transform .4s;overflow:hidden}
