@@ -155,7 +155,7 @@ function applyColores(c) {
 //  FIREBASE: cargar y guardar
 // ════════════════════════════════════════════════════════
 async function cargarDesdeFirebase(){
-  const snap = await DOC_REF.get();
+  const snap = await DOC_REF.get({ source: 'server' });
   if(snap.exists){
     const data = snap.data();
     if(data.lista){
@@ -168,10 +168,15 @@ async function cargarDesdeFirebase(){
 }
 
 async function guardarEnFirebase(){
-  await DOC_REF.set({
-    lista: productos,
-    categoriasOcultas
-  });
+  try {
+    await DOC_REF.set({
+      lista: productos,
+      categoriasOcultas
+    });
+  } catch(err) {
+    console.error('Error guardando en Firebase:', err);
+    mostrarToast('⚠ Error al guardar. Revisá la conexión.');
+  }
 }
 
 // ════════════════════════════════════════════════════════
