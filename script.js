@@ -365,20 +365,39 @@ function buildTrack(catId, prods){
   const cardW   = getCardWidth();
 
   carruselProds[catId] = prods;
-  posCarrusel[catId]   = 0;
-  track.innerHTML      = '';
-
-  prods.forEach(p => {
-    const card = crearCard(p, false);
-    card.style.flex = `0 0 ${cardW}px`;
-    track.appendChild(card);
-  });
+  track.innerHTML = '';
 
   const btnPrev = document.getElementById('btn-prev-' + catId);
   const btnNext = document.getElementById('btn-next-' + catId);
-  const ocultar = prods.length <= visible;
-  if(btnPrev) btnPrev.style.display = ocultar ? 'none' : '';
-  if(btnNext) btnNext.style.display = ocultar ? 'none' : '';
+
+  const agregarCard = (p, clon) => {
+    const card = crearCard(p, clon);
+    card.style.flex = `0 0 ${cardW}px`;
+    track.appendChild(card);
+  };
+
+  if(prods.length <= visible){
+    prods.forEach(p => agregarCard(p, false));
+    posCarrusel[catId] = 0;
+    if(btnPrev) btnPrev.style.display = 'none';
+    if(btnNext) btnNext.style.display = 'none';
+    return;
+  }
+
+  if(btnPrev) btnPrev.style.display = '';
+  if(btnNext) btnNext.style.display = '';
+
+  // Clones al inicio (últimos `visible` productos)
+  prods.slice(-visible).forEach(p => agregarCard(p, true));
+  // Cards reales
+  prods.forEach(p => agregarCard(p, false));
+  // Clones al final (primeros `visible` productos)
+  prods.slice(0, visible).forEach(p => agregarCard(p, true));
+
+  // Posicionar en la primera card real (salteando los clones del inicio)
+  posCarrusel[catId] = visible;
+  const outer = track.closest('.carrusel-track-outer');
+  if(outer) outer.scrollTo({ left: visible * (cardW + 20), behavior: 'auto' });
 }
 
 function crearCard(p, esClonado){
@@ -440,11 +459,26 @@ function moverCarrusel(catId, dir){
   const visible = visiblePorPantalla();
   if(prods.length <= visible) return;
 
-  posCarrusel[catId] = Math.max(0, Math.min((posCarrusel[catId] || 0) + dir, prods.length - visible));
+  posCarrusel[catId] = (posCarrusel[catId] || visible) + dir;
 
   const track = document.getElementById('carrusel-track-' + catId);
   const outer = track?.closest('.carrusel-track-outer');
-  if(outer) outer.scrollLeft = posCarrusel[catId] * (getCardWidth() + 20);
+  if(!outer) return;
+
+  const cardW = getCardWidth();
+  outer.scrollTo({ left: posCarrusel[catId] * (cardW + 20), behavior: 'smooth' });
+
+  // Después del scroll animado, saltar silenciosamente si estamos en zona de clones
+  setTimeout(() => {
+    const total = prods.length;
+    if(posCarrusel[catId] >= total + visible){
+      posCarrusel[catId] = visible;
+      outer.scrollTo({ left: visible * (cardW + 20), behavior: 'auto' });
+    } else if(posCarrusel[catId] < visible){
+      posCarrusel[catId] = total + visible - 1;
+      outer.scrollTo({ left: (total + visible - 1) * (cardW + 20), behavior: 'auto' });
+    }
+  }, 450);
 }
 
 // ════════════════════════════════════════════════════════
