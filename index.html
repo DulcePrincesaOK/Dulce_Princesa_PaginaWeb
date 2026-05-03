@@ -3,36 +3,41 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Dulce Princesa</title>
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Jost:wght@300;400;500&display=swap" rel="stylesheet">
+<title>Cargando…</title>
+<link id="gfonts" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Jost:wght@300;400;500&display=swap" rel="stylesheet">
 <!-- Firebase -->
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
 
-// ═════════════════════════════
-//  Importa aspectos esteticos de style.css
-// ═════════════════════════════
+<!-- ═══════════════════════════════════════
+     config.js va PRIMERO — contiene todos
+     los datos del cliente (colores, textos,
+     contactos, Firebase, etc.)
+     ═══════════════════════════════════════ -->
+<script src="config.js"></script>
+
 <link rel="stylesheet" href="style.css">
-
-
 </head>
 <body>
 
 <!-- NAV -->
 <nav>
   <div class="nav-inner">
-    <div class="nav-logo" onclick="scrollToSection('hero')">Dulce <span>Princesa</span></div>
+    <div class="nav-logo" id="nav-logo" onclick="scrollToSection('hero')">
+      <!-- Llenado por applyConfig() desde config.js -->
+    </div>
     <ul class="nav-links">
       <li><a onclick="scrollToSection('nosotros')">Nosotros</a></li>
       <li><a onclick="scrollToSection('productos')">Productos</a></li>
       <li><a onclick="scrollToSection('contacto')">Contacto</a></li>
     </ul>
     <div class="nav-social">
-      <a class="nav-icon" href="https://instagram.com/dulce.princesa.ok" target="_blank" title="Instagram">
+      <a class="nav-icon" id="nav-ig-link" href="#" target="_blank" title="Instagram">
         <svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
       </a>
-      <a class="nav-icon" href="https://wa.me/541134521808" target="_blank" title="WhatsApp">
-        <svg viewBox="0 0 24 24" fill="var(--rose-deep)" stroke="none"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.125.555 4.12 1.527 5.849L.057 23.5l5.797-1.52A11.95 11.95 0 0 0 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818a9.792 9.792 0 0 1-5.054-1.404l-.362-.215-3.44.902.919-3.357-.236-.376A9.794 9.794 0 0 1 2.182 12C2.182 6.57 6.57 2.182 12 2.182S21.818 6.57 21.818 12 17.43 21.818 12 21.818z"/></svg>
+      <a class="nav-icon" id="nav-wa-link" href="#" target="_blank" title="WhatsApp">
+        <svg viewBox="0 0 24 24" fill="var(--principal)" stroke="none"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.125.555 4.12 1.527 5.849L.057 23.5l5.797-1.52A11.95 11.95 0 0 0 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818a9.792 9.792 0 0 1-5.054-1.404l-.362-.215-3.44.902.919-3.357-.236-.376A9.794 9.794 0 0 1 2.182 12C2.182 6.57 6.57 2.182 12 2.182S21.818 6.57 21.818 12 17.43 21.818 12 21.818z"/></svg>
       </a>
     </div>
   </div>
@@ -47,10 +52,10 @@
       <div class="hero-circle hc3"></div>
     </div>
     <div class="hero-content">
-      <p class="hero-eyebrow">· Repostería artesanal ·</p>
-      <p class="hero-eyebrow">Paso del Rey</p>
-      <h1 class="hero-title">Dulce<br><em>Princesa</em></h1>
-      <p class="hero-subtitle">Tortas, meriendas y postres elaborados con<br>amor, los mejores ingredientes y dedicación.</p>
+      <p class="hero-eyebrow" id="hero-eyebrow-1"></p>
+      <p class="hero-eyebrow" id="hero-eyebrow-2"></p>
+      <h1 class="hero-title" id="hero-title"></h1>
+      <p class="hero-subtitle" id="hero-subtitle"></p>
       <div class="hero-cta">
         <button class="btn-primary" onclick="scrollToSection('productos')">Ver productos</button>
         <button class="btn-outline" onclick="scrollToSection('contacto')">Contactarnos</button>
@@ -69,28 +74,19 @@
     <div class="about-grid">
       <div class="about-image">
         <div class="about-img-placeholder">
-            <img src="img/logo.jpg" alt="Dulce Princesa" style="width:100%; height:auto;">
-            <p>Amor en cada ingrediente</p>
-          </div>
+          <img src="img/logo.jpg" alt="Logo" style="width:100%; height:auto;">
+          <p>Amor en cada ingrediente</p>
+        </div>
         <div class="about-accent"></div>
       </div>
       <div class="about-text">
-        <p class="section-label">Nuestra historia</p>
-        <h2 class="section-title">Cada dulce es una pequeña obra de arte</h2>
+        <p class="section-label" id="nosotros-label"></p>
+        <h2 class="section-title" id="nosotros-titulo"></h2>
         <div class="divider"></div>
-        <p>En <strong>Dulce Princesa</strong> nos dedicamos a crear experiencias dulces únicas. Cada torta, cada postre, cada merienda está pensada con detalle, elaborada con los mejores ingredientes y presentada con una estética cuidada.</p>
-        <p>Nuestro emprendimiento nació con la pasión de endulzar los momentos especiales: cumpleaños, reuniones, celebraciones o simplemente un capricho merecido.</p>
-        <p>Trabajamos de forma artesanal, pedido por pedido, para garantizar la frescura y calidad que mereces.</p>
-        <div>
-          <div class="about-stat" style="display:inline-flex">
-            <span class="stat-num">100%</span>
-            <span class="stat-label">Artesanal</span>
-          </div>
-          <div class="about-stat" style="display:inline-flex">
-            <span class="stat-num">♡</span>
-            <span class="stat-label">Hecho con amor</span>
-          </div>
-        </div>
+        <!-- Los párrafos se generan desde config.js → nosotros.parrafos -->
+        <div id="nosotros-parrafos"></div>
+        <!-- Los stats se generan desde config.js → nosotros.stats -->
+        <div id="nosotros-stats"></div>
       </div>
     </div>
   </div>
@@ -101,8 +97,8 @@
   <div class="container">
     <div class="productos-header">
       <div>
-        <p class="section-label">Lo que ofrecemos</p>
-        <h2 class="section-title">Nuestras creaciones</h2>
+        <p class="section-label" id="productos-label"></p>
+        <h2 class="section-title" id="productos-titulo"></h2>
       </div>
     </div>
     <div id="carrousels-container">
@@ -118,8 +114,8 @@
   <div class="container">
     <div class="contacto-grid">
       <div class="contacto-info">
-        <p class="section-label">Hablemos</p>
-        <h2 class="section-title">¿Tenés un pedido en mente?</h2>
+        <p class="section-label" id="contacto-label"></p>
+        <h2 class="section-title" id="contacto-titulo"></h2>
         <div class="divider"></div>
         <div class="contact-item">
           <div class="contact-icon">
@@ -127,7 +123,7 @@
           </div>
           <div>
             <h4>WhatsApp</h4>
-            <a href="https://wa.me/541134521808" target="_blank">+54 11 3452-1808</a>
+            <a id="contacto-wa-link" href="#" target="_blank"></a>
           </div>
         </div>
         <div class="contact-item">
@@ -136,26 +132,26 @@
           </div>
           <div>
             <h4>Instagram</h4>
-            <a href="https://instagram.com/dulce.princesa.ok" target="_blank">@dulce.princesa.ok</a>
+            <a id="contacto-ig-link" href="#" target="_blank"></a>
           </div>
         </div>
         <div class="social-strip">
-          <a class="social-btn" href="https://instagram.com/dulce.princesa.ok" target="_blank">
-            <svg viewBox="0 0 24 24" stroke="var(--rose-deep)" fill="none" stroke-width="1.5"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
+          <a class="social-btn" id="contacto-social-ig" href="#" target="_blank">
+            <svg viewBox="0 0 24 24" stroke="var(--principal)" fill="none" stroke-width="1.5"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
             Instagram
           </a>
-          <a class="social-btn" href="https://wa.me/541134521808" target="_blank">
-            <svg viewBox="0 0 24 24" fill="var(--rose-deep)" width="14" height="14"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.125.555 4.12 1.527 5.849L.057 23.5l5.797-1.52A11.95 11.95 0 0 0 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818a9.792 9.792 0 0 1-5.054-1.404l-.362-.215-3.44.902.919-3.357-.236-.376A9.794 9.794 0 0 1 2.182 12C2.182 6.57 6.57 2.182 12 2.182S21.818 6.57 21.818 12 17.43 21.818 12 21.818z"/></svg>
+          <a class="social-btn" id="contacto-social-wa" href="#" target="_blank">
+            <svg viewBox="0 0 24 24" fill="var(--principal)" width="14" height="14"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.125.555 4.12 1.527 5.849L.057 23.5l5.797-1.52A11.95 11.95 0 0 0 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818a9.792 9.792 0 0 1-5.054-1.404l-.362-.215-3.44.902.919-3.357-.236-.376A9.794 9.794 0 0 1 2.182 12C2.182 6.57 6.57 2.182 12 2.182S21.818 6.57 21.818 12 17.43 21.818 12 21.818z"/></svg>
             WhatsApp
           </a>
         </div>
       </div>
       <div class="contacto-cta">
-        <h3>Hacemos tu pedido a medida</h3>
-        <p>Cada creación es única y personalizada. Contanos qué estás buscando — sabores, ocasión, cantidad — y te respondemos a la brevedad con todos los detalles.</p>
-        <a class="whatsapp-btn" href="https://wa.me/541134521808?text=Hola!%20Vi%20su%20página%20y%20me%20gustaría%20hacer%20un%20pedido." target="_blank">
+        <h3 id="contacto-cta-titulo"></h3>
+        <p id="contacto-cta-p"></p>
+        <a class="whatsapp-btn" id="contacto-cta-btn" href="#" target="_blank">
           <svg viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.125.555 4.12 1.527 5.849L.057 23.5l5.797-1.52A11.95 11.95 0 0 0 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818a9.792 9.792 0 0 1-5.054-1.404l-.362-.215-3.44.902.919-3.357-.236-.376A9.794 9.794 0 0 1 2.182 12C2.182 6.57 6.57 2.182 12 2.182S21.818 6.57 21.818 12 17.43 21.818 12 21.818z"/></svg>
-          Escribinos por WhatsApp
+          <span id="contacto-cta-btn-texto"></span>
         </a>
       </div>
     </div>
@@ -164,20 +160,20 @@
 
 <!-- FOOTER -->
 <footer>
-  <div class="footer-logo">Dulce <span>Princesa</span></div>
-  <div class="footer-tagline">Repostería artesanal · Paso del Rey</div>
+  <div class="footer-logo" id="footer-logo"></div>
+  <div class="footer-tagline" id="footer-tagline"></div>
   <div class="footer-social">
-    <a class="footer-icon" href="https://instagram.com/dulce.princesa.ok" target="_blank">
+    <a class="footer-icon" id="footer-ig-link" href="#" target="_blank">
       <svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
     </a>
-    <a class="footer-icon" href="https://wa.me/541134521808" target="_blank">
-      <svg viewBox="0 0 24 24" fill="var(--rose)" stroke="none"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.125.555 4.12 1.527 5.849L.057 23.5l5.797-1.52A11.95 11.95 0 0 0 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818a9.792 9.792 0 0 1-5.054-1.404l-.362-.215-3.44.902.919-3.357-.236-.376A9.794 9.794 0 0 1 2.182 12C2.182 6.57 6.57 2.182 12 2.182S21.818 6.57 21.818 12 17.43 21.818 12 21.818z"/></svg>
+    <a class="footer-icon" id="footer-wa-link" href="#" target="_blank">
+      <svg viewBox="0 0 24 24" fill="var(--fondo)" stroke="none"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.125.555 4.12 1.527 5.849L.057 23.5l5.797-1.52A11.95 11.95 0 0 0 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818a9.792 9.792 0 0 1-5.054-1.404l-.362-.215-3.44.902.919-3.357-.236-.376A9.794 9.794 0 0 1 2.182 12C2.182 6.57 6.57 2.182 12 2.182S21.818 6.57 21.818 12 17.43 21.818 12 21.818z"/></svg>
     </a>
   </div>
-  <p class="footer-copy">© 2026 Dulce Princesa · Amor en cada ingrediente</p>
+  <p class="footer-copy" id="footer-copy"></p>
 </footer>
 
-<!-- MODAL -->
+<!-- MODAL PRODUCTO -->
 <div class="modal-overlay" id="modal" onclick="closeModal(event)">
   <div class="modal" style="position:relative">
     <button class="modal-close" onclick="document.getElementById('modal').classList.remove('active')">✕</button>
@@ -199,7 +195,7 @@
 <div id="admin-bar" class="admin-bar" style="display:none">
   <div class="admin-badge">
     <span class="dot-live"></span>
-    Modo Administrador — Dulce Princesa
+    Modo Administrador — <span id="admin-badge-nombre"></span>
   </div>
   <div class="admin-actions">
     <button class="btn-admin-add" onclick="abrirModalAgregar()">+ Agregar producto</button>
@@ -215,32 +211,25 @@
   <div class="admin-modal">
     <button class="admin-close" onclick="document.getElementById('admin-modal').classList.remove('active')">✕</button>
     <h2>Nuevo producto</h2>
-    <p class="a-subtitle">Completá los datos del postre</p>
+    <p class="a-subtitle" id="admin-modal-subtitle"></p>
 
     <div class="admin-field">
       <label>Nombre del producto *</label>
-      <input type="text" id="a-nombre" placeholder="Ej: Torta de tres leches">
+      <input type="text" id="a-nombre" placeholder="">
     </div>
     <div class="admin-field">
       <label>Categoría *</label>
       <select id="a-tipo" onchange="toggleNuevaCat()">
         <option value="">— Seleccioná una categoría —</option>
-        <option value="Tortas">Tortas</option>
-        <option value="Tartas">Tartas</option>
-        <option value="Clásicos">Clásicos</option>
-        <option value="Panadería">Panadería</option>
-        <option value="Meriendas">Meriendas</option>
-        <option value="Estacionales">Estacionales</option>
-        <option value="Otro">Otro</option>
         <option value="__nueva__">＋ Agregar nueva categoría…</option>
       </select>
       <div id="a-tipo-nueva-wrap" style="display:none;margin-top:8px">
-        <input type="text" id="a-tipo-nueva" placeholder="Nombre de la nueva categoría" style="width:100%;padding:10px 14px;border:1px solid var(--rose-mid);border-radius:2px;font-family:'Jost';font-size:14px;color:var(--text);background:var(--rose-soft);outline:none">
+        <input type="text" id="a-tipo-nueva" placeholder="Nombre de la nueva categoría" style="width:100%;padding:10px 14px;border:1px solid var(--detalles);border-radius:2px;font-family:'Jost';font-size:14px;color:var(--text);background:var(--secciones);outline:none">
       </div>
     </div>
     <div class="admin-field">
       <label>Descripción *</label>
-      <textarea id="a-desc" placeholder="Contá de qué está hecho, sus sabores, qué lo hace especial…"></textarea>
+      <textarea id="a-desc" placeholder="Contá sus características, qué lo hace especial…"></textarea>
     </div>
     <div class="admin-field">
       <label>Fotos del producto * <span style="font-size:10px;color:var(--text-soft);text-transform:none;letter-spacing:0">(podés agregar varias · hacé clic en una para marcarla como portada)</span></label>
@@ -294,12 +283,27 @@
 <!-- TOAST -->
 <div class="admin-toast" id="admin-toast"></div>
 
-
-// ═════════════════════════════
-//  Importa script de script.js
-// ═════════════════════════════
 <script src="script.js"></script>
 
+<!-- MODAL LOGIN ADMIN -->
+<div class="login-modal-overlay" id="login-modal">
+  <div class="login-modal">
+    <div class="login-modal-logo" id="login-modal-logo"></div>
+    <h2>Acceso Administrador</h2>
+    <p class="login-subtitle">Ingresá tus credenciales para continuar</p>
+    <div class="login-field">
+      <label>Email</label>
+      <input type="email" id="login-email" placeholder="admin@ejemplo.com" autocomplete="username">
+    </div>
+    <div class="login-field">
+      <label>Contraseña</label>
+      <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password">
+    </div>
+    <p class="login-error" id="login-error"></p>
+    <button class="login-btn" id="login-btn" onclick="submitLogin()">Ingresar</button>
+    <button class="login-cancel" onclick="cancelarLogin()">Cancelar</button>
+  </div>
+</div>
 
 </body>
 </html>

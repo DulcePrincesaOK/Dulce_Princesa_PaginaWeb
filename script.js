@@ -1,54 +1,28 @@
 // ════════════════════════════════════════════════════════
-//  CONFIGURACIÓN FIREBASE
+//  CONFIGURACIÓN FIREBASE — viene de config.js
 // ════════════════════════════════════════════════════════
-const firebaseConfig = {
-  apiKey: "AIzaSyDNUQ0Kz_vjlPzG3ChnWIFFeKOPziIcz1c",
-  authDomain: "dulce-princesa-18082001.firebaseapp.com",
-  projectId: "dulce-princesa-18082001",
-  storageBucket: "dulce-princesa-18082001.firebasestorage.app",
-  messagingSenderId: "1030198289641",
-  appId: "1:1030198289641:web:0b93396e294ccc23fbfc78"
-};
-
-firebase.initializeApp(firebaseConfig);
+firebase.initializeApp(SITE_CONFIG.firebase);
 const db = firebase.firestore();
 const DOC_REF = db.collection('catalogo').doc('productos');
+const auth = firebase.auth();
+
+
+//MANTENER SESIÓN
+auth.onAuthStateChanged(user => {
+  if(user && ADMIN_REQUEST){
+    ADMIN_MODE = true;
+    document.body.classList.add('admin');
+    document.getElementById('admin-bar').style.display = 'flex';
+  } else if(user && !ADMIN_REQUEST){
+    // Sesión activa pero URL normal → cerrar sesión silenciosamente
+    auth.signOut();
+  }
+});
 
 // ════════════════════════════════════════════════════════
-//  PRODUCTOS ORIGINALES (fallback y restauración)
+//  PRODUCTOS ORIGINALES — vienen de config.js
 // ════════════════════════════════════════════════════════
-const productosDefault = [
-  {
-    nombre:"Pan dulce",
-    tipo:"Panadería",
-    desc:"Hecho con mucho amor, bien esponjoso y lleno de sabor. Podés elegir clásico con frutas abrillantadas o con chips de chocolate 🍫🍊",
-    img:"img/pan_dulce_1.jpg"
-  },
-  {
-    nombre:"Tarta de durazno",
-    tipo:"Tartas",
-    desc:"Nuestra tarta de durazno, dulce de leche y crema es ese abrazo dulce que estabas esperando. Fruta fresca, crema suave, base crocante y el clásico sabor del dulce de leche… todo en una sola porción de felicidad.",
-    img:"img/tarta_durazno.webp"
-  },
-  {
-    nombre:"Tarta de chocolate y dulce de leche",
-    tipo:"Tartas",
-    desc:"Exquisita tarta con base crocante, rellena de dulce de leche y cubierta con chocolate. La combinación perfecta, un mordisco para la felicidad 🍫",
-    img:"img/tarta_chocolate.jpg"
-  },
-  {
-    nombre:"Pasta frola",
-    tipo:"Clásicos",
-    desc:"Clásica pasta frola con masa suave y relleno de dulce de membrillo o batata. Hecha con amor, rellena de tradición… y lista para conquistarte.",
-    img:"img/pasta_frola.webp"
-  },
-  {
-    nombre:"Huevo de Pascua",
-    tipo:"Clásicos",
-    desc:"Chocolate fino, diseño artesanal y toda la magia de la tradición. Un regalo perfecto para celebrar la Pascua con estilo y dulzura.",
-    img:"img/huevo_pascua.webp"
-  }
-];
+const productosDefault = SITE_CONFIG.productosDefault;
 
 // ════════════════════════════════════════════════════════
 //  ESTADO GLOBAL
@@ -62,6 +36,121 @@ const params = new URLSearchParams(location.search);
 const ADMIN_REQUEST = params.has('admin');
 let ADMIN_MODE = false;
 
+
+
+// ════════════════════════════════════════════════════════
+//  APLICAR CONFIG — llena todos los textos y colores
+//  desde config.js al cargar la página
+// ════════════════════════════════════════════════════════
+function applyConfig() {
+  const C = SITE_CONFIG;
+
+  // Título del browser
+  document.title = `${C.marcaPrincipal} ${C.marcaItalica}`;
+
+  // Fuentes — actualiza el link de Google Fonts dinámicamente
+  const gfonts = document.getElementById('gfonts');
+  if (gfonts) {
+    const serif = C.fontSerif.replace(/ /g, '+');
+    const sans  = C.fontSans.replace(/ /g, '+');
+    gfonts.href = `https://fonts.googleapis.com/css2?family=${serif}:ital,wght@0,300;0,400;0,600;1,300;1,400&family=${sans}:wght@300;400;500&display=swap`;
+  }
+  document.body.style.fontFamily = `'${C.fontSans}', sans-serif`;
+
+  // Colores CSS (sobreescribe el :root del CSS)
+  applyColores(C.colores);
+
+  // ── NAV ──────────────────────────────────────────────
+  document.getElementById('nav-logo').innerHTML =
+    `${C.marcaPrincipal} <span>${C.marcaItalica}</span>`;
+  document.getElementById('nav-ig-link').href =
+    `https://instagram.com/${C.instagram}`;
+  document.getElementById('nav-wa-link').href =
+    `https://wa.me/${C.whatsapp}`;
+
+  // ── HERO ─────────────────────────────────────────────
+  document.getElementById('hero-eyebrow-1').textContent = `· ${C.rubro} ·`;
+  document.getElementById('hero-eyebrow-2').textContent = C.ubicacion;
+  document.getElementById('hero-title').innerHTML =
+    `${C.marcaPrincipal}<br><em>${C.marcaItalica}</em>`;
+  document.getElementById('hero-subtitle').innerHTML = C.heroSubtitulo;
+
+  // ── NOSOTROS ─────────────────────────────────────────
+  document.getElementById('nosotros-label').textContent = C.nosotros.label;
+  document.getElementById('nosotros-titulo').textContent = C.nosotros.titulo;
+  document.getElementById('nosotros-parrafos').innerHTML =
+    C.nosotros.parrafos.map(p => `<p>${p}</p>`).join('');
+  document.getElementById('nosotros-stats').innerHTML =
+    C.nosotros.stats.map(s => `
+      <div class="about-stat" style="display:inline-flex">
+        <span class="stat-num">${s.num}</span>
+        <span class="stat-label">${s.label}</span>
+      </div>`).join('');
+
+  // ── PRODUCTOS ────────────────────────────────────────
+  document.getElementById('productos-label').textContent = C.productos.label;
+  document.getElementById('productos-titulo').textContent = C.productos.titulo;
+
+  // ── CONTACTO ─────────────────────────────────────────
+  document.getElementById('contacto-label').textContent = C.contacto.label;
+  document.getElementById('contacto-titulo').textContent = C.contacto.titulo;
+
+  const waLink = document.getElementById('contacto-wa-link');
+  waLink.href = `https://wa.me/${C.whatsapp}`;
+  waLink.textContent = C.contacto.waDisplay;
+
+  const igLink = document.getElementById('contacto-ig-link');
+  igLink.href = `https://instagram.com/${C.instagram}`;
+  igLink.textContent = `@${C.instagram}`;
+
+  document.getElementById('contacto-social-ig').href = `https://instagram.com/${C.instagram}`;
+  document.getElementById('contacto-social-wa').href = `https://wa.me/${C.whatsapp}`;
+
+  document.getElementById('contacto-cta-titulo').textContent = C.contacto.ctaTitulo;
+  document.getElementById('contacto-cta-p').textContent = C.contacto.ctaParrafo;
+
+  const ctaBtn = document.getElementById('contacto-cta-btn');
+  ctaBtn.href = `https://wa.me/${C.whatsapp}?text=${encodeURIComponent(C.contacto.waTexto)}`;
+  document.getElementById('contacto-cta-btn-texto').textContent = C.contacto.ctaBoton;
+
+  // ── FOOTER ───────────────────────────────────────────
+  document.getElementById('footer-logo').innerHTML =
+    `${C.marcaPrincipal} <span>${C.marcaItalica}</span>`;
+  document.getElementById('footer-tagline').textContent =
+    `${C.rubro} · ${C.ubicacion}`;
+  document.getElementById('footer-ig-link').href =
+    `https://instagram.com/${C.instagram}`;
+  document.getElementById('footer-wa-link').href =
+    `https://wa.me/${C.whatsapp}`;
+  document.getElementById('footer-copy').textContent = C.footer.copyright;
+
+  // ── ADMIN BAR ────────────────────────────────────────
+  document.getElementById('admin-badge-nombre').textContent = C.admin.nombrePanel;
+  document.getElementById('login-modal-logo').innerHTML = `${C.marcaPrincipal} <span>${C.marcaItalica}</span>`;
+
+  // ── ADMIN MODAL ──────────────────────────────────────
+  document.getElementById('admin-modal-subtitle').textContent =
+    `Completá los datos del Producto`;
+  document.getElementById('a-nombre').placeholder =
+    `Ej: ${C.tipoProductoEjemplo}`;
+}
+
+// ════════════════════════════════════════════════════════
+//  APLICAR COLORES — sobreescribe variables CSS del :root
+// ════════════════════════════════════════════════════════
+function applyColores(c) {
+  const r = document.documentElement.style;
+  r.setProperty('--fondo',      c.fondo);
+  r.setProperty('--principal', c.principal);
+  r.setProperty('--secciones', c.secciones);
+  r.setProperty('--detalles',  c.detalles);
+  r.setProperty('--cream',     c.cream);
+  r.setProperty('--text',      c.text);
+  r.setProperty('--text-soft', c.textSoft);
+  r.setProperty('--gold',      c.gold);
+  r.setProperty('--white',     c.white);
+}
+
 // ════════════════════════════════════════════════════════
 //  FIREBASE: cargar y guardar
 // ════════════════════════════════════════════════════════
@@ -69,44 +158,76 @@ async function cargarDesdeFirebase(){
   const snap = await DOC_REF.get();
   if(snap.exists){
     const data = snap.data();
-    if(data.lista && data.lista.length > 0){
+    if(data.lista){
       categoriasOcultas = Array.isArray(data.categoriasOcultas) ? data.categoriasOcultas : [];
       return data.lista;
     }
   }
-  await DOC_REF.set({ lista: productosDefault, categoriasOcultas: [] });
-  return productosDefault.map(p => ({...p}));
+  await DOC_REF.set({ lista: [], categoriasOcultas: [] });
+  return [];
 }
 
 async function guardarEnFirebase(){
-  await DOC_REF.set({ lista: productos, categoriasOcultas });
+  await DOC_REF.set({
+    lista: productos,
+    categoriasOcultas
+  });
 }
 
 // ════════════════════════════════════════════════════════
-//  LOGIN
+//  LOGIN — credenciales vienen de config.js
 // ════════════════════════════════════════════════════════
 function pedirLoginAdmin(){
-  const user = prompt("Usuario:");
-  const pass = prompt("Contraseña:");
-  if(user === "NaiLoza" && pass === "nachu18082001"){
+  document.getElementById('login-modal').classList.add('active');
+  setTimeout(() => document.getElementById('login-email').focus(), 150);
+  ['login-email','login-password'].forEach(id => {
+    document.getElementById(id).onkeydown = e => { if(e.key === 'Enter') submitLogin(); };
+  });
+}
+
+function cancelarLogin(){
+  document.getElementById('login-modal').classList.remove('active');
+  document.getElementById('login-error').textContent = '';
+  document.getElementById('login-email').value = '';
+  document.getElementById('login-password').value = '';
+}
+
+async function submitLogin(){
+  const email    = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const btn      = document.getElementById('login-btn');
+  const errorEl  = document.getElementById('login-error');
+
+  if(!email || !password){ errorEl.textContent = 'Completá email y contraseña.'; return; }
+
+  btn.textContent = 'Ingresando…';
+  btn.disabled    = true;
+  errorEl.textContent = '';
+
+  try {
+    await auth.signInWithEmailAndPassword(email, password);
+    document.getElementById('login-modal').classList.remove('active');
     ADMIN_MODE = true;
     document.body.classList.add('admin');
-  } else {
-    alert("Credenciales incorrectas");
+    document.getElementById('admin-bar').style.display = 'flex';
+    buildAllCarousels(); // reconstruir cards con botones de admin
+  } catch {
+    errorEl.textContent = 'Credenciales incorrectas. Intentá de nuevo.';
+    btn.textContent = 'Ingresar';
+    btn.disabled    = false;
   }
 }
 
-function logoutAdmin(){ location.reload(); }
+function logoutAdmin(){
+  auth.signOut().then(() => {
+    location.reload();
+  });
+}
 
 // ════════════════════════════════════════════════════════
 //  INICIALIZAR
 // ════════════════════════════════════════════════════════
 async function inicializar(){
-  // Login PRIMERO, dentro del DOMContentLoaded, para que Android no pierda el evento
-  if(ADMIN_REQUEST){
-    pedirLoginAdmin();
-  }
-
   if(ADMIN_MODE){
     document.body.classList.add('admin-mode');
     document.getElementById('admin-bar').style.display = 'flex';
@@ -118,11 +239,25 @@ async function inicializar(){
     productos = productosDefault.map(p => ({...p}));
   }
   document.getElementById('carrusel-loading').style.display = 'none';
-  buildAllCarousels();
+  // Esperar dos frames para que el navegador termine el layout antes de medir los anchos
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      buildAllCarousels();
+    });
+  });
 }
 
-document.addEventListener('DOMContentLoaded', inicializar);
-window.addEventListener('resize', () => buildAllCarousels());
+document.addEventListener('DOMContentLoaded', () => {
+  applyConfig();
+  inicializar();
+  if(ADMIN_REQUEST){ pedirLoginAdmin(); }
+});
+
+let resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => buildAllCarousels(), 150);
+});
 
 // ════════════════════════════════════════════════════════
 //  HELPERS
@@ -223,6 +358,7 @@ function crearSeccionCarrusel(cat, catId, showDivider){
 function buildTrack(catId, prods){
   const track = document.getElementById('carrusel-track-' + catId);
   if(!track || !prods.length) return;
+
   const visible = visiblePorPantalla();
 
   carruselProds[catId] = prods;
@@ -345,8 +481,9 @@ function openModal(p){
     window._modalCarouselTotal = imgs.length;
   }
   
-  const msg = encodeURIComponent("Hola! Vi su página y me gustaría hacer un pedido.");
-  document.getElementById('modal-wa').href = `https://wa.me/541134521808?text=${msg}`;
+  // WhatsApp link desde config.js
+  const msg = encodeURIComponent(SITE_CONFIG.contacto.waTexto);
+  document.getElementById('modal-wa').href = `https://wa.me/${SITE_CONFIG.whatsapp}?text=${msg}`;
   document.getElementById('modal').classList.add('active');
   document.body.style.overflow = 'hidden';
 }
@@ -397,7 +534,7 @@ async function eliminarProducto(p){
 // ════════════════════════════════════════════════════════
 //  ADMIN — Agregar / Editar
 // ════════════════════════════════════════════════════════
-let fotosBase64 = [];      // array de todas las fotos { data, isPortada }
+let fotosBase64 = [];      // array de todas las fotos
 let portadaIdx = 0;        // índice de la foto de portada
 let productoEditando = null;
 
@@ -436,13 +573,12 @@ function agregarFotos(e){
       fotosBase64.push(base64);
       pending--;
       if(pending === 0){
-        if(fotosBase64.length === files.length) portadaIdx = 0; // primera foto = portada por defecto al agregar la primera tanda
+        if(fotosBase64.length === files.length) portadaIdx = 0;
         renderFotosGrid();
         document.getElementById('a-foto-texto').textContent = `${fotosBase64.length} imagen${fotosBase64.length!==1?'es':''} cargada${fotosBase64.length!==1?'s':''}`;
       }
     });
   });
-  // Reset input para poder subir las mismas fotos otra vez
   e.target.value = '';
 }
 
@@ -505,12 +641,11 @@ function toggleNuevaCat(){
   }
 }
 
-// Poblar el select con las categorías existentes (incluyendo las creadas)
+// Poblar el select con las categorías — usa config.js → categoriasFijas
 function poblarSelectTipo(valorActual){
   const sel = document.getElementById('a-tipo');
-  const opcionesFijas = ['Tortas','Tartas','Clásicos','Panadería','Meriendas','Estacionales','Otro'];
+  const opcionesFijas = SITE_CONFIG.categoriasFijas;   // ← viene de config.js
   const existentes = getCategorias();
-  // Mostrar solo las fijas que aún existen como categorías activas, más las extra creadas
   const extras = existentes.filter(c => !opcionesFijas.includes(c));
   const fijasFiltradas = opcionesFijas.filter(c => existentes.includes(c) || !productos.length);
 
@@ -521,7 +656,6 @@ function poblarSelectTipo(valorActual){
     opt.textContent = c;
     sel.appendChild(opt);
   });
-  // Siempre mostrar la opción de nueva categoría
   const optNueva = document.createElement('option');
   optNueva.value = '__nueva__';
   optNueva.textContent = '＋ Agregar nueva categoría…';
@@ -537,7 +671,6 @@ async function guardarProducto(){
   let   tipo   = document.getElementById('a-tipo').value;
   const desc   = document.getElementById('a-desc').value.trim();
 
-  // Resolver nueva categoría
   if(tipo === '__nueva__'){
     tipo = document.getElementById('a-tipo-nueva').value.trim();
     if(!tipo){ alert('Por favor escribí el nombre de la nueva categoría.'); return; }
@@ -548,7 +681,6 @@ async function guardarProducto(){
   if(!desc)      { alert('Por favor escribí una descripción.'); return; }
   if(!fotosBase64.length){ alert('Por favor subí al menos una foto del producto.'); return; }
 
-  // Reordenar: portada primero
   const reordenadas = [fotosBase64[portadaIdx], ...fotosBase64.filter((_,i)=>i!==portadaIdx)];
   const imgPortada = reordenadas[0];
 
@@ -580,7 +712,6 @@ function abrirModalEditar(p){
   document.getElementById('a-nombre').value = p.nombre;
   poblarSelectTipo(p.tipo);
   document.getElementById('a-desc').value   = p.desc;
-  // Cargar fotos existentes
   fotosBase64 = p.imgs && p.imgs.length > 0 ? [...p.imgs] : [p.img];
   portadaIdx = 0;
   renderFotosGrid();
@@ -697,7 +828,6 @@ async function guardarReorden(){
   if(reorderCatActual === '__todos__'){
     productos = ordenTemporal;
   } else {
-    // Reemplazar los productos de esa categoría en su orden dentro del array global
     let idx = 0;
     productos = productos.map(p =>
       p.tipo === reorderCatActual ? ordenTemporal[idx++] : p
