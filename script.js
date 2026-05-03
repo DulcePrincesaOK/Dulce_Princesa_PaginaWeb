@@ -31,7 +31,6 @@ let productos = [];
 let posCarrusel = {};       // { catId: posicion }
 let carruselProds = {};     // { catId: [productos del carrusel] }
 let categoriasOcultas = []; // nombres de categorías ocultas
-let ordenCategorias   = []; // orden de aparición de categorías
 
 const params = new URLSearchParams(location.search);
 const ADMIN_REQUEST = params.has('admin');
@@ -161,11 +160,10 @@ async function cargarDesdeFirebase(){
     const data = snap.data();
     if(data.lista){
       categoriasOcultas = Array.isArray(data.categoriasOcultas) ? data.categoriasOcultas : [];
-      ordenCategorias   = Array.isArray(data.ordenCategorias)   ? data.ordenCategorias   : [];
       return data.lista;
     }
   }
-  await DOC_REF.set({ lista: [], categoriasOcultas: [], ordenCategorias: [] });
+  await DOC_REF.set({ lista: [], categoriasOcultas: [] });
   return [];
 }
 
@@ -173,8 +171,7 @@ async function guardarEnFirebase(){
   try {
     await DOC_REF.set({
       lista: productos,
-      categoriasOcultas,
-      ordenCategorias
+      categoriasOcultas
     });
   } catch(err) {
     console.error('Error guardando en Firebase:', err);
@@ -276,12 +273,7 @@ function getCatId(cat){
 }
 
 function getCategorias(){
-  const todas = [...new Set(productos.map(p => p.tipo))];
-  if(!ordenCategorias.length) return todas;
-  return [
-    ...ordenCategorias.filter(c => todas.includes(c)),
-    ...todas.filter(c => !ordenCategorias.includes(c))
-  ];
+  return [...new Set(productos.map(p => p.tipo))];
 }
 
 function visiblePorPantalla(){
@@ -883,18 +875,13 @@ function cerrarModalCategorias(e){
 function renderCatToggles(){
   const list = document.getElementById('cat-toggle-list');
   list.innerHTML = '';
-  let dragSrc = null;
-
   getCategorias().forEach(cat => {
-    const count   = productos.filter(p => p.tipo === cat).length;
+    const count = productos.filter(p => p.tipo === cat).length;
     const visible = !categoriasOcultas.includes(cat);
-    const item    = document.createElement('div');
-    item.className  = 'cat-toggle-item';
-    item.draggable  = true;
-    item.dataset.cat = cat;
+    const item = document.createElement('div');
+    item.className = 'cat-toggle-item';
     item.innerHTML = `
-      <span class="cat-drag-handle">⠿</span>
-      <div style="flex:1;min-width:0">
+      <div>
         <div class="cat-toggle-name">${cat}</div>
         <div class="cat-toggle-count">${count} producto${count !== 1 ? 's' : ''}</div>
       </div>
@@ -905,45 +892,16 @@ function renderCatToggles(){
           <span class="toggle-slider"></span>
         </label>
       </div>`;
-
-    item.addEventListener('dragstart', () => {
-      dragSrc = item;
-      setTimeout(() => item.classList.add('dragging'), 0);
-    });
-    item.addEventListener('dragend', () => {
-      item.classList.remove('dragging');
-      list.querySelectorAll('.cat-toggle-item').forEach(el => el.classList.remove('drag-over'));
-    });
-    item.addEventListener('dragover', e => {
-      e.preventDefault();
-      list.querySelectorAll('.cat-toggle-item').forEach(el => el.classList.remove('drag-over'));
-      if(item !== dragSrc) item.classList.add('drag-over');
-    });
-    item.addEventListener('drop', e => {
-      e.preventDefault();
-      if(!dragSrc || dragSrc === item) return;
-      const items  = [...list.querySelectorAll('.cat-toggle-item')];
-      const srcIdx = items.indexOf(dragSrc);
-      const dstIdx = items.indexOf(item);
-      if(srcIdx < dstIdx) item.after(dragSrc);
-      else item.before(dragSrc);
-      list.querySelectorAll('.cat-toggle-item').forEach(el => el.classList.remove('drag-over'));
-    });
-
     list.appendChild(item);
   });
 }
 
 async function guardarCategorias(){
-  // Leer el orden actual del DOM (después de los drags)
-  ordenCategorias = [...document.querySelectorAll('#cat-toggle-list .cat-toggle-item')]
-    .map(el => el.dataset.cat);
-
+  const checkboxes = document.querySelectorAll('#cat-toggle-list input[type=checkbox]');
   categoriasOcultas = [];
-  document.querySelectorAll('#cat-toggle-list input[type=checkbox]').forEach(cb => {
+  checkboxes.forEach(cb => {
     if(!cb.checked) categoriasOcultas.push(cb.dataset.cat);
   });
-
   buildAllCarousels();
   document.getElementById('cat-modal').classList.remove('active');
   mostrarToast('Guardando…');

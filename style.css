@@ -478,9 +478,3 @@
 .login-btn:disabled{opacity:0.6;cursor:not-allowed}
 .login-cancel{background:none;border:none;color:var(--text-soft);font-family:'Jost';font-size:12px;letter-spacing:1px;cursor:pointer;text-align:center;padding:4px;text-decoration:underline;text-underline-offset:3px}
 .login-cancel:hover{color:var(--text)}
-
-
-.cat-drag-handle{font-size:18px;color:var(--principal);opacity:0.5;cursor:grab;flex-shrink:0;margin-right:8px;user-select:none}
-.cat-drag-handle:active{cursor:grabbing}
-.cat-toggle-item.dragging{opacity:0.35;border-bottom-color:var(--principal)}
-.cat-toggle-item.drag-over{background:var(--secciones);box-shadow:0 -2px 0 var(--principal)}
