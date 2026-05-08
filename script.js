@@ -31,7 +31,8 @@ let productos = [];
 let posCarrusel = {};       // { catId: posicion }
 let carruselProds = {};     // { catId: [productos del carrusel] }
 let categoriasOcultas = []; // nombres de categorías ocultas
-let categoriaOrden = [];    // orden personalizado de categorías (solo en memoria)
+let categoriaOrden = [];    // orden personalizado de categorías
+let ordenCategorias = {};
 
 const params = new URLSearchParams(location.search);
 const ADMIN_REQUEST = params.has('admin');
@@ -160,6 +161,7 @@ async function cargarDesdeFirebase(){
   if(snap.exists){
     const data = snap.data();
     if(data.lista){
+
       categoriasOcultas = Array.isArray(data.categoriasOcultas)
         ? data.categoriasOcultas
         : [];
@@ -167,6 +169,8 @@ async function cargarDesdeFirebase(){
       categoriaOrden = Array.isArray(data.categoriaOrden)
         ? data.categoriaOrden
         : [];
+
+      ordenCategorias = data.ordenCategorias || {};
 
       return data.lista;
     }
@@ -180,7 +184,8 @@ async function guardarEnFirebase(){
     await DOC_REF.set({
       lista: productos,
       categoriasOcultas,
-      categoriaOrden
+      categoriaOrden,
+      ordenCategorias
     });
   } catch(err) {
     console.error('Error guardando en Firebase:', err);
@@ -248,6 +253,14 @@ async function inicializar(){
   }
   try {
     productos = await cargarDesdeFirebase();
+    productos.forEach((p, i) => {
+      if(!p.id){
+        p.id = 'prod_' + Date.now() + '_' + i + '_' + Math.random().toString(36).slice(2,8);
+      }
+    });
+    if(ADMIN_MODE){
+      await guardarEnFirebase();
+    }
   } catch(err){
     console.error('Error cargando Firebase:', err);
     productos = productosDefault.map(p => ({...p}));
@@ -309,6 +322,7 @@ function visiblePorPantalla(){
 function buildAllCarousels(){
   const container = document.getElementById('carrousels-container');
   if(!container) return;
+
   container.innerHTML = '';
 
   const cats = getCategorias();
@@ -316,37 +330,90 @@ function buildAllCarousels(){
   const toInit = [];
 
   visibles.forEach((cat, idx) => {
+
     const prods = productos.filter(p => {
       const lista = Array.isArray(p.tipos) ? p.tipos : [p.tipo];
       return lista.includes(cat);
     });
+
+    // ORDEN PERSONALIZADO DE ESA CATEGORÍA
+    const orden = ordenCategorias[cat];
+
+    if(orden){
+
+      prods.sort((a,b) => {
+
+        const ia = orden.indexOf(a.id);
+        const ib = orden.indexOf(b.id);
+
+        // productos nuevos quedan al final
+        if(ia === -1) return 1;
+        if(ib === -1) return -1;
+
+        return ia - ib;
+      });
+
+    }
+
     if(!prods.length) return;
+
     const catId = getCatId(cat);
+
     const section = crearSeccionCarrusel(cat, catId, idx > 0);
+
     container.appendChild(section);
+
     toInit.push({ catId, prods: [...prods] });
+
   });
 
   // "Todos los productos" al final
   if(productos.length > 0){
-    const section = crearSeccionCarrusel('Todos los productos', 'todos', visibles.length > 0);
+
+    const section = crearSeccionCarrusel(
+      'Todos los productos',
+      'todos',
+      visibles.length > 0
+    );
+
     container.appendChild(section);
-    toInit.push({ catId: 'todos', prods: [...productos] });
+
+    toInit.push({
+      catId: 'todos',
+      prods: [...productos]
+    });
   }
 
-  // Ahora que están en el DOM, construir los tracks
+  // Construir tracks
   toInit.forEach(({ catId, prods }) => {
+
     buildTrack(catId, prods);
-    // Touch swipe
-    const track = document.getElementById('carrusel-track-' + catId);
+
+    const track = document.getElementById(
+      'carrusel-track-' + catId
+    );
+
     if(!track) return;
+
     let startX = 0;
-    track.addEventListener('touchstart', e => { startX = e.touches[0].clientX; }, {passive:true});
+
+    track.addEventListener('touchstart', e => {
+      startX = e.touches[0].clientX;
+    }, {passive:true});
+
     track.addEventListener('touchend', e => {
-      const diff = startX - e.changedTouches[0].clientX;
-      if(Math.abs(diff) > 40) moverCarrusel(catId, diff > 0 ? 1 : -1);
+
+      const diff =
+        startX - e.changedTouches[0].clientX;
+
+      if(Math.abs(diff) > 40){
+        moverCarrusel(catId, diff > 0 ? 1 : -1);
+      }
+
     });
+
   });
+
 }
 
 function crearSeccionCarrusel(cat, catId, showDivider){
@@ -779,10 +846,6 @@ function abrirModalReorden(){
     opt.textContent = cat;
     select.appendChild(opt);
   });
-  const optTodos = document.createElement('option');
-  optTodos.value = '__todos__';
-  optTodos.textContent = 'Todos los productos';
-  select.appendChild(optTodos);
 
   reorderCatActual = select.value;
   cargarOrdenTemporal();
@@ -857,18 +920,19 @@ function renderizarListaReorden(){
 }
 
 async function guardarReorden(){
-  if(reorderCatActual === '__todos__'){
-    productos = ordenTemporal;
-  } else {
-    let idx = 0;
-    productos = productos.map(p =>
-      p.tipo === reorderCatActual ? ordenTemporal[idx++] : p
-    );
-  }
+
+  ordenCategorias[reorderCatActual] =
+    ordenTemporal.map(p => p.id);
+
   buildAllCarousels();
-  document.getElementById('reorder-modal').classList.remove('active');
+
+  document.getElementById('reorder-modal')
+    .classList.remove('active');
+
   mostrarToast('Guardando orden…');
+
   await guardarEnFirebase();
+
   mostrarToast('Orden guardado ✓');
 }
 
