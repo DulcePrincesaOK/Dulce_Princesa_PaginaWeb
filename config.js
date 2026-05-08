@@ -47,6 +47,7 @@ const SITE_CONFIG = {
     titulo:     "¿Buscás algo especial?",
     waDisplay:  "+54 11 3452-1808",           
     waTexto:    "Hola! Vi su página y me gustaría consultar para hacer un pedido.",
+    waTextoProducto: "Hola! Vi su página y me gustaría consultar por: *{nombre}*",
     ctaTitulo:  "Hacemos tu pedido a medida",
     ctaParrafo: "Cada creación es única y personalizada. Contanos qué estás buscando — sabores, ocasión, cantidad — y te respondemos a la brevedad con todos los detalles.",
     ctaBoton:   "Escribinos por WhatsApp"
