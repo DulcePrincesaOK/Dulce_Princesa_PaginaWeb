@@ -15,7 +15,7 @@ const SITE_CONFIG = {
   ubicacion: "Paso del Rey",          // Ej: "Buenos Aires", "Palermo"
 
   // ── HERO ───────────────────────────────────────────────────────
-  heroSubtitulo: "Indumentaria y bijouterie que combinan<br>estilo, calidad y personalidad para cada ocasión.",
+  heroSubtitulo: "Tortas, meriendas y postres elaborados con amor, los mejores ingredientes y dedicación.",
 
   // ── SECCIÓN NOSOTROS ───────────────────────────────────────────
   nosotros: {
@@ -43,14 +43,14 @@ const SITE_CONFIG = {
   instagram: "dulce.princesa.ok",  // Sin @
 
   contacto: {
-  label:      "Hablemos",
-  titulo:     "¿Buscás algo especial?",
-  waDisplay:  "+54 11 3452-1808",           
-  waTexto:    "Hola! Vi su página y me gustaría consultar para hacer un pedido.",
-  ctaTitulo:  "Hacemos tu pedido a medida",
-  ctaParrafo: "Cada creación es única y personalizada. Contanos qué estás buscando — sabores, ocasión, cantidad — y te respondemos a la brevedad con todos los detalles.",
-  ctaBoton:   "Escribinos por WhatsApp"
-},
+    label:      "Hablemos",
+    titulo:     "¿Buscás algo especial?",
+    waDisplay:  "+54 11 3452-1808",           
+    waTexto:    "Hola! Vi su página y me gustaría consultar para hacer un pedido.",
+    ctaTitulo:  "Hacemos tu pedido a medida",
+    ctaParrafo: "Cada creación es única y personalizada. Contanos qué estás buscando — sabores, ocasión, cantidad — y te respondemos a la brevedad con todos los detalles.",
+    ctaBoton:   "Escribinos por WhatsApp"
+  },
 
   // ── FOOTER ─────────────────────────────────────────────────────
   footer: {

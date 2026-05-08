@@ -33,6 +33,9 @@
       <li><a onclick="scrollToSection('contacto')">Contacto</a></li>
     </ul>
     <div class="nav-social">
+      <button class="nav-search-btn" onclick="abrirBuscador()" title="Buscar productos">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="22" y2="22"/></svg>
+      </button>
       <a class="nav-icon" id="nav-ig-link" href="#" target="_blank" title="Instagram">
         <svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
       </a>
@@ -218,11 +221,9 @@
       <input type="text" id="a-nombre" placeholder="">
     </div>
     <div class="admin-field">
-      <label>Categoría *</label>
-      <select id="a-tipo" onchange="toggleNuevaCat()">
-        <option value="">— Seleccioná una categoría —</option>
-        <option value="__nueva__">＋ Agregar nueva categoría…</option>
-      </select>
+      <label>Categorías * <span style="font-size:10px;color:var(--text-soft);text-transform:none;letter-spacing:0">(podés elegir más de una)</span></label>
+      <div id="a-tipos-checks" style="display:flex;flex-wrap:wrap;gap:8px;padding:10px 0;min-height:36px"></div>
+      <button type="button" onclick="toggleNuevaCat()" style="margin-top:4px;background:none;border:1px dashed var(--detalles);border-radius:2px;padding:6px 12px;cursor:pointer;font-family:'Jost';font-size:13px;color:var(--text-soft)">＋ Nueva categoría</button>
       <div id="a-tipo-nueva-wrap" style="display:none;margin-top:8px">
         <input type="text" id="a-tipo-nueva" placeholder="Nombre de la nueva categoría" style="width:100%;padding:10px 14px;border:1px solid var(--detalles);border-radius:2px;font-family:'Jost';font-size:14px;color:var(--text);background:var(--secciones);outline:none">
       </div>
@@ -276,6 +277,33 @@
     <div class="reorder-modal-btns" style="margin-top:2rem">
       <button class="btn-cancelar" onclick="document.getElementById('cat-modal').classList.remove('active')">Cancelar</button>
       <button class="btn-guardar" onclick="guardarCategorias()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- SEARCH OVERLAY -->
+<div class="search-overlay" id="search-overlay" onclick="if(event.target===this)cerrarBuscador()">
+  <div class="search-panel">
+    <div class="search-header">
+      <div class="search-input-wrap">
+        <svg class="search-icon-input" viewBox="0 0 24 24" fill="none" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="22" y2="22"/></svg>
+        <input
+          type="text"
+          id="search-input"
+          class="search-input"
+          placeholder="Buscá un producto…"
+          oninput="onSearchInput(event)"
+          autocomplete="off"
+        >
+        <button class="search-close-btn" onclick="cerrarBuscador()">✕</button>
+      </div>
+      <div class="search-count" id="search-count"></div>
+    </div>
+    <div class="search-results" id="search-results"></div>
+    <div class="search-empty" id="search-empty" style="display:none">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.3"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="22" y2="22"/><line x1="8" y1="8" x2="14" y2="14"/><line x1="14" y1="8" x2="8" y2="14"/></svg>
+      <p>No encontramos resultados para <span class="search-empty-term"></span></p>
+      <p class="search-empty-hint">Intentá con otra palabra clave</p>
     </div>
   </div>
 </div>

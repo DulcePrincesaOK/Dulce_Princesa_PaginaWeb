@@ -479,3 +479,200 @@
 .login-btn:disabled{opacity:0.6;cursor:not-allowed}
 .login-cancel{background:none;border:none;color:var(--text-soft);font-family:'Jost';font-size:12px;letter-spacing:1px;cursor:pointer;text-align:center;padding:4px;text-decoration:underline;text-underline-offset:3px}
 .login-cancel:hover{color:var(--text)}
+/* ── CHECKBOXES MULTI-CATEGORÍA ──────────────────────── */
+.cat-checkbox-label{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border:1px solid var(--detalles);border-radius:20px;cursor:pointer;font-size:13px;color:var(--text-soft);transition:all .2s;user-select:none;background:var(--secciones)}
+.cat-checkbox-label:hover{border-color:var(--principal);color:var(--text)}
+.cat-checkbox-label input[type=checkbox]{accent-color:var(--principal);width:14px;height:14px;cursor:pointer}
+.cat-checkbox-label:has(input:checked){border-color:var(--principal);background:color-mix(in srgb,var(--principal) 12%,transparent);color:var(--text);font-weight:500}
+
+/* ── BUSCADOR NAV ─────────────────────────────────────── */
+.nav-search-btn{
+  width:36px;height:36px;
+  border:0.5px solid var(--detalles);
+  border-radius:50%;
+  background:transparent;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;transition:background .2s;
+  flex-shrink:0;
+}
+.nav-search-btn:hover{background:var(--fondo)}
+.nav-search-btn svg{width:16px;height:16px;stroke:var(--principal)}
+
+/* ── SEARCH OVERLAY ──────────────────────────────────── */
+.search-overlay{
+  position:fixed;inset:0;
+  background:rgba(31,58,64,0.55);
+  backdrop-filter:blur(6px);
+  z-index:500;
+  display:none;
+  align-items:flex-start;
+  justify-content:center;
+  padding-top:80px;
+  padding:80px 1.5rem 2rem;
+}
+.search-overlay.active{display:flex}
+
+.search-panel{
+  background:var(--white);
+  border-radius:8px;
+  width:100%;max-width:680px;
+  max-height:80vh;
+  display:flex;flex-direction:column;
+  box-shadow:0 24px 60px rgba(31,58,64,0.22);
+  overflow:hidden;
+}
+
+.search-header{
+  padding:1.2rem 1.4rem 0.8rem;
+  border-bottom:1px solid var(--secciones);
+  flex-shrink:0;
+}
+
+.search-input-wrap{
+  display:flex;align-items:center;gap:10px;
+  border:1.5px solid var(--detalles);
+  border-radius:6px;
+  padding:0 12px;
+  background:var(--secciones);
+  transition:border-color .2s;
+}
+.search-input-wrap:focus-within{border-color:var(--principal)}
+
+.search-icon-input{width:18px;height:18px;stroke:var(--text-soft);flex-shrink:0}
+
+.search-input{
+  flex:1;
+  border:none;background:transparent;
+  font-family:'Jost',sans-serif;
+  font-size:16px;
+  color:var(--text);
+  padding:13px 0;
+  outline:none;
+}
+.search-input::placeholder{color:var(--text-soft)}
+
+.search-close-btn{
+  width:28px;height:28px;
+  border:none;background:none;
+  color:var(--text-soft);
+  font-size:16px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  border-radius:50%;
+  transition:background .2s,color .2s;
+  flex-shrink:0;
+}
+.search-close-btn:hover{background:var(--fondo);color:var(--text)}
+
+.search-count{
+  font-size:11px;letter-spacing:2px;
+  text-transform:uppercase;
+  color:var(--principal);
+  margin-top:8px;
+  min-height:16px;
+}
+
+/* ── RESULTS LIST ────────────────────────────────────── */
+.search-results{
+  overflow-y:auto;
+  flex:1;
+  padding:0.6rem 1rem;
+  display:flex;flex-direction:column;gap:6px;
+}
+
+.search-card{
+  display:flex;align-items:center;gap:14px;
+  padding:12px 10px;
+  border-radius:6px;
+  cursor:pointer;
+  transition:background .18s;
+  border:1px solid transparent;
+}
+.search-card:hover{
+  background:var(--secciones);
+  border-color:var(--detalles);
+}
+
+.search-card-img{
+  width:64px;height:64px;flex-shrink:0;
+  border-radius:4px;overflow:hidden;
+  border:1px solid var(--detalles);
+  background:var(--fondo);
+}
+.search-card-img img{width:100%;height:100%;object-fit:cover;display:block}
+
+.search-card-info{flex:1;min-width:0}
+.search-card-cat{
+  font-size:10px;letter-spacing:3px;
+  text-transform:uppercase;color:var(--principal);
+  margin-bottom:3px;
+}
+.search-card-name{
+  font-family:'Cormorant Garamond',serif;
+  font-size:19px;font-weight:400;
+  color:var(--text);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.search-card-name mark{
+  background:color-mix(in srgb,var(--principal) 20%,transparent);
+  color:var(--text);
+  border-radius:2px;
+  padding:0 2px;
+}
+.search-card-desc{
+  font-size:12px;color:var(--text-soft);
+  margin-top:2px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.search-card-btn{
+  flex-shrink:0;
+  padding:8px 18px;
+  background:transparent;
+  border:1px solid var(--detalles);
+  border-radius:2px;
+  font-family:'Jost';font-size:11px;
+  letter-spacing:2px;text-transform:uppercase;
+  color:var(--text-soft);
+  cursor:pointer;
+  transition:all .2s;
+}
+.search-card:hover .search-card-btn{
+  background:var(--principal);
+  border-color:var(--principal);
+  color:white;
+}
+
+/* ── EMPTY STATE ─────────────────────────────────────── */
+.search-empty{
+  padding:3rem 2rem;
+  text-align:center;
+  display:flex;flex-direction:column;
+  align-items:center;gap:0.5rem;
+  color:var(--text-soft);
+}
+.search-empty svg{
+  width:48px;height:48px;
+  stroke:var(--detalles);
+  margin-bottom:0.8rem;
+}
+.search-empty p{font-size:14px;color:var(--text-soft)}
+.search-empty-term{font-weight:500;color:var(--text)}
+.search-empty-hint{font-size:12px;letter-spacing:1px;color:var(--detalles)}
+
+/* ── CATEGORÍAS DRAG REORDER ─────────────────────────── */
+.cat-drag-handle{
+  font-size:18px;color:var(--principal);
+  opacity:0.5;cursor:grab;
+  flex-shrink:0;line-height:1;
+  user-select:none;
+}
+.cat-drag-handle:active{cursor:grabbing}
+.cat-toggle-item{
+  cursor:default;
+  transition:box-shadow .2s,border-color .2s,opacity .2s;
+}
+.cat-toggle-item.cat-dragging{opacity:0.35;border-color:var(--principal)}
+.cat-toggle-item.cat-drag-over{
+  box-shadow:0 0 0 2px var(--principal);
+  border-color:var(--principal);
+  background:color-mix(in srgb,var(--principal) 8%,var(--secciones));
+}

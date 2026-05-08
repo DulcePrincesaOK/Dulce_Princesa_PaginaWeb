@@ -31,6 +31,7 @@ let productos = [];
 let posCarrusel = {};       // { catId: posicion }
 let carruselProds = {};     // { catId: [productos del carrusel] }
 let categoriasOcultas = []; // nombres de categorías ocultas
+let categoriaOrden = [];    // orden personalizado de categorías (solo en memoria)
 
 const params = new URLSearchParams(location.search);
 const ADMIN_REQUEST = params.has('admin');
@@ -66,7 +67,7 @@ function applyConfig() {
   document.getElementById('nav-ig-link').href =
     `https://instagram.com/${C.instagram}`;
   document.getElementById('nav-wa-link').href =
-    `https://wa.me/${C.whatsapp}`;
+    `https://wa.me/${C.whatsapp}?text=${encodeURIComponent(C.contacto.waTexto)}`;
 
   // ── HERO ─────────────────────────────────────────────
   document.getElementById('hero-eyebrow-1').textContent = `· ${C.rubro} ·`;
@@ -96,7 +97,7 @@ function applyConfig() {
   document.getElementById('contacto-titulo').textContent = C.contacto.titulo;
 
   const waLink = document.getElementById('contacto-wa-link');
-  waLink.href = `https://wa.me/${C.whatsapp}`;
+  waLink.href = `https://wa.me/${C.whatsapp}?text=${encodeURIComponent(C.contacto.waTexto)}`;
   waLink.textContent = C.contacto.waDisplay;
 
   const igLink = document.getElementById('contacto-ig-link');
@@ -104,7 +105,7 @@ function applyConfig() {
   igLink.textContent = `@${C.instagram}`;
 
   document.getElementById('contacto-social-ig').href = `https://instagram.com/${C.instagram}`;
-  document.getElementById('contacto-social-wa').href = `https://wa.me/${C.whatsapp}`;
+  document.getElementById('contacto-social-wa').href = `https://wa.me/${C.whatsapp}?text=${encodeURIComponent(C.contacto.waTexto)}`;
 
   document.getElementById('contacto-cta-titulo').textContent = C.contacto.ctaTitulo;
   document.getElementById('contacto-cta-p').textContent = C.contacto.ctaParrafo;
@@ -121,7 +122,7 @@ function applyConfig() {
   document.getElementById('footer-ig-link').href =
     `https://instagram.com/${C.instagram}`;
   document.getElementById('footer-wa-link').href =
-    `https://wa.me/${C.whatsapp}`;
+    `https://wa.me/${C.whatsapp}?text=${encodeURIComponent(C.contacto.waTexto)}`;
   document.getElementById('footer-copy').textContent = C.footer.copyright;
 
   // ── ADMIN BAR ────────────────────────────────────────
@@ -159,7 +160,14 @@ async function cargarDesdeFirebase(){
   if(snap.exists){
     const data = snap.data();
     if(data.lista){
-      categoriasOcultas = Array.isArray(data.categoriasOcultas) ? data.categoriasOcultas : [];
+      categoriasOcultas = Array.isArray(data.categoriasOcultas)
+        ? data.categoriasOcultas
+        : [];
+
+      categoriaOrden = Array.isArray(data.categoriaOrden)
+        ? data.categoriaOrden
+        : [];
+
       return data.lista;
     }
   }
@@ -171,7 +179,8 @@ async function guardarEnFirebase(){
   try {
     await DOC_REF.set({
       lista: productos,
-      categoriasOcultas
+      categoriasOcultas,
+      categoriaOrden
     });
   } catch(err) {
     console.error('Error guardando en Firebase:', err);
@@ -273,7 +282,19 @@ function getCatId(cat){
 }
 
 function getCategorias(){
-  return [...new Set(productos.map(p => p.tipo))];
+  // Soporta tanto tipo (string legacy) como tipos (array nuevo)
+  const cats = [];
+  productos.forEach(p => {
+    const lista = Array.isArray(p.tipos) ? p.tipos : [p.tipo];
+    lista.forEach(c => { if(c && !cats.includes(c)) cats.push(c); });
+  });
+  // Aplicar orden personalizado si existe
+  if(categoriaOrden.length > 0){
+    const ordenadas = categoriaOrden.filter(c => cats.includes(c));
+    const nuevas = cats.filter(c => !categoriaOrden.includes(c));
+    return [...ordenadas, ...nuevas];
+  }
+  return cats;
 }
 
 function visiblePorPantalla(){
@@ -295,7 +316,10 @@ function buildAllCarousels(){
   const toInit = [];
 
   visibles.forEach((cat, idx) => {
-    const prods = productos.filter(p => p.tipo === cat);
+    const prods = productos.filter(p => {
+      const lista = Array.isArray(p.tipos) ? p.tipos : [p.tipo];
+      return lista.includes(cat);
+    });
     if(!prods.length) return;
     const catId = getCatId(cat);
     const section = crearSeccionCarrusel(cat, catId, idx > 0);
@@ -389,7 +413,7 @@ function crearCard(p, esClonado){
       <img src="${p.img}" alt="${p.nombre}">
     </div>
     <div class="prod-info">
-      <div class="prod-tipo">${p.tipo}</div>
+      <div class="prod-tipo">${Array.isArray(p.tipos) ? p.tipos[0] : p.tipo}</div>
       <div class="prod-name">${p.nombre}</div>
     </div>
     <div class="prod-overlay">
@@ -451,7 +475,7 @@ function moverCarrusel(catId, dir){
 //  MODAL PRODUCTO
 // ════════════════════════════════════════════════════════
 function openModal(p){
-  document.getElementById('modal-tipo').textContent  = p.tipo;
+  document.getElementById('modal-tipo').textContent  = Array.isArray(p.tipos) ? p.tipos.join(' · ') : p.tipo;
   document.getElementById('modal-title').textContent = p.nombre;
   document.getElementById('modal-desc').textContent  = p.desc;
   
@@ -478,9 +502,10 @@ function openModal(p){
     window._modalCarouselTotal = imgs.length;
   }
   
-  // WhatsApp link desde config.js
-  const msg = encodeURIComponent(SITE_CONFIG.contacto.waTexto);
-  document.getElementById('modal-wa').href = `https://wa.me/${SITE_CONFIG.whatsapp}?text=${msg}`;
+  // WhatsApp link con nombre del producto
+  const template = SITE_CONFIG.contacto.waTextoProducto || SITE_CONFIG.contacto.waTexto;
+  const msgProducto = template.replace('{nombre}', p.nombre);
+  document.getElementById('modal-wa').href = `https://wa.me/${SITE_CONFIG.whatsapp}?text=${encodeURIComponent(msgProducto)}`;
   document.getElementById('modal').classList.add('active');
   document.body.style.overflow = 'hidden';
 }
@@ -555,8 +580,7 @@ function cerrarAdminModal(e){
   portadaIdx = 0;
   document.getElementById('a-nombre').value = '';
   document.getElementById('a-desc').value   = '';
-  document.getElementById('a-tipo-nueva').value = '';
-  document.getElementById('a-tipo-nueva-wrap').style.display = 'none';
+  poblarSelectTipo([]);
   renderFotosGrid();
   document.querySelector('.admin-modal h2').textContent = 'Nuevo producto';
 }
@@ -626,55 +650,61 @@ function comprimirImagen(file, callback){
 
 // Mostrar/ocultar input de nueva categoría
 function toggleNuevaCat(){
-  const sel = document.getElementById('a-tipo');
   const wrap = document.getElementById('a-tipo-nueva-wrap');
   const input = document.getElementById('a-tipo-nueva');
-  if(sel.value === '__nueva__'){
-    wrap.style.display = 'block';
-    input.focus();
-  } else {
+  const visible = wrap.style.display === 'block';
+  if(visible){
     wrap.style.display = 'none';
     input.value = '';
+  } else {
+    wrap.style.display = 'block';
+    input.focus();
   }
 }
 
-// Poblar el select con las categorías — usa config.js → categoriasFijas
-function poblarSelectTipo(valorActual){
-  const sel = document.getElementById('a-tipo');
-  const opcionesFijas = SITE_CONFIG.categoriasFijas;   // ← viene de config.js
+// Poblar checkboxes de categorías (selección múltiple)
+function poblarSelectTipo(seleccionados = []){
+  const selArr = Array.isArray(seleccionados) ? seleccionados : [seleccionados];
+  const opcionesFijas = SITE_CONFIG.categoriasFijas;
   const existentes = getCategorias();
   const extras = existentes.filter(c => !opcionesFijas.includes(c));
-  const fijasFiltradas = opcionesFijas.filter(c => existentes.includes(c) || !productos.length);
+  const todas = [...new Set([...opcionesFijas, ...extras])];
 
-  sel.innerHTML = `<option value="">— Seleccioná una categoría —</option>`;
-  [...fijasFiltradas, ...extras].forEach(c => {
-    const opt = document.createElement('option');
-    opt.value = c;
-    opt.textContent = c;
-    sel.appendChild(opt);
+  const container = document.getElementById('a-tipos-checks');
+  container.innerHTML = '';
+
+  todas.forEach(c => {
+    const label = document.createElement('label');
+    label.className = 'cat-checkbox-label';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.value = c;
+    cb.checked = selArr.includes(c);
+    label.appendChild(cb);
+    label.append(' ' + c);
+    container.appendChild(label);
   });
-  const optNueva = document.createElement('option');
-  optNueva.value = '__nueva__';
-  optNueva.textContent = '＋ Agregar nueva categoría…';
-  sel.appendChild(optNueva);
 
-  if(valorActual) sel.value = valorActual;
+  // Mostrar/ocultar "nueva categoría"
   document.getElementById('a-tipo-nueva-wrap').style.display = 'none';
   document.getElementById('a-tipo-nueva').value = '';
 }
 
 async function guardarProducto(){
   const nombre = document.getElementById('a-nombre').value.trim();
-  let   tipo   = document.getElementById('a-tipo').value;
   const desc   = document.getElementById('a-desc').value.trim();
 
-  if(tipo === '__nueva__'){
-    tipo = document.getElementById('a-tipo-nueva').value.trim();
-    if(!tipo){ alert('Por favor escribí el nombre de la nueva categoría.'); return; }
-  }
+  // Categorías seleccionadas (checkboxes múltiples)
+  const tiposSeleccionados = Array.from(
+    document.querySelectorAll('#a-tipos-checks input[type=checkbox]:checked')
+  ).map(cb => cb.value);
+
+  // Nueva categoría escrita a mano
+  const nuevaCatInput = document.getElementById('a-tipo-nueva').value.trim();
+  if(nuevaCatInput) tiposSeleccionados.push(nuevaCatInput);
 
   if(!nombre)    { alert('Por favor ingresá el nombre del producto.'); return; }
-  if(!tipo)      { alert('Por favor seleccioná una categoría.'); return; }
+  if(!tiposSeleccionados.length){ alert('Por favor seleccioná al menos una categoría.'); return; }
   if(!desc)      { alert('Por favor escribí una descripción.'); return; }
   if(!fotosBase64.length){ alert('Por favor subí al menos una foto del producto.'); return; }
 
@@ -683,12 +713,13 @@ async function guardarProducto(){
 
   if(productoEditando){
     productoEditando.nombre = nombre;
-    productoEditando.tipo   = tipo;
+    productoEditando.tipos  = tiposSeleccionados;
+    productoEditando.tipo   = tiposSeleccionados[0]; // compatibilidad legacy
     productoEditando.desc   = desc;
     productoEditando.img    = imgPortada;
     productoEditando.imgs   = reordenadas;
   } else {
-    productos.push({ nombre, tipo, desc, img: imgPortada, imgs: reordenadas });
+    productos.push({ nombre, tipo: tiposSeleccionados[0], tipos: tiposSeleccionados, desc, img: imgPortada, imgs: reordenadas });
   }
 
   buildAllCarousels();
@@ -707,7 +738,8 @@ async function guardarProducto(){
 function abrirModalEditar(p){
   productoEditando = p;
   document.getElementById('a-nombre').value = p.nombre;
-  poblarSelectTipo(p.tipo);
+  const tiposActuales = Array.isArray(p.tipos) ? p.tipos : [p.tipo];
+  poblarSelectTipo(tiposActuales);
   document.getElementById('a-desc').value   = p.desc;
   fotosBase64 = p.imgs && p.imgs.length > 0 ? [...p.imgs] : [p.img];
   portadaIdx = 0;
@@ -767,7 +799,10 @@ function cambiarCatReorden(){
 function cargarOrdenTemporal(){
   ordenTemporal = reorderCatActual === '__todos__'
     ? [...productos]
-    : productos.filter(p => p.tipo === reorderCatActual);
+    : productos.filter(p => {
+        const lista = Array.isArray(p.tipos) ? p.tipos : [p.tipo];
+        return lista.includes(reorderCatActual);
+      });
 }
 
 function cerrarModalReorden(e){
@@ -790,7 +825,7 @@ function renderizarListaReorden(){
       <img class="reorder-thumb" src="${p.img}" alt="${p.nombre}">
       <div class="reorder-info">
         <div class="reorder-name">${p.nombre}</div>
-        <div class="reorder-tipo">${p.tipo}</div>
+        <div class="reorder-tipo">${Array.isArray(p.tipos) ? p.tipos.join(', ') : p.tipo}</div>
       </div>`;
 
     li.addEventListener('dragstart', e => {
@@ -850,18 +885,30 @@ function cerrarModalCategorias(e){
   document.getElementById('cat-modal').classList.remove('active');
 }
 
+let catDragSrc = null;
+
 function renderCatToggles(){
   const list = document.getElementById('cat-toggle-list');
   list.innerHTML = '';
-  getCategorias().forEach(cat => {
-    const count = productos.filter(p => p.tipo === cat).length;
+  const cats = getCategorias();
+  cats.forEach((cat, idx) => {
+    const count = productos.filter(p => {
+      const lista = Array.isArray(p.tipos) ? p.tipos : [p.tipo];
+      return lista.includes(cat);
+    }).length;
     const visible = !categoriasOcultas.includes(cat);
     const item = document.createElement('div');
     item.className = 'cat-toggle-item';
+    item.draggable = true;
+    item.dataset.cat = cat;
+    item.dataset.index = idx;
     item.innerHTML = `
-      <div>
-        <div class="cat-toggle-name">${cat}</div>
-        <div class="cat-toggle-count">${count} producto${count !== 1 ? 's' : ''}</div>
+      <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">
+        <span class="cat-drag-handle" title="Arrastrá para reordenar">⠿</span>
+        <div>
+          <div class="cat-toggle-name">${cat}</div>
+          <div class="cat-toggle-count">${count} producto${count !== 1 ? 's' : ''}</div>
+        </div>
       </div>
       <div class="cat-toggle-actions">
         <button class="btn-cat-delete" title="Eliminar categoría y sus productos" onclick="eliminarCategoria('${cat.replace(/'/g,"\\'")}')">×</button>
@@ -870,6 +917,33 @@ function renderCatToggles(){
           <span class="toggle-slider"></span>
         </label>
       </div>`;
+
+    item.addEventListener('dragstart', e => {
+      catDragSrc = idx;
+      item.classList.add('cat-dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    item.addEventListener('dragend', () => {
+      item.classList.remove('cat-dragging');
+      list.querySelectorAll('.cat-toggle-item').forEach(el => el.classList.remove('cat-drag-over'));
+    });
+    item.addEventListener('dragover', e => {
+      e.preventDefault();
+      list.querySelectorAll('.cat-toggle-item').forEach(el => el.classList.remove('cat-drag-over'));
+      item.classList.add('cat-drag-over');
+    });
+    item.addEventListener('drop', e => {
+      e.preventDefault();
+      const destIdx = parseInt(item.dataset.index);
+      if(catDragSrc === null || catDragSrc === destIdx) return;
+      const currentCats = getCategorias();
+      const [moved] = currentCats.splice(catDragSrc, 1);
+      currentCats.splice(destIdx, 0, moved);
+      categoriaOrden = currentCats;
+      catDragSrc = null;
+      renderCatToggles();
+    });
+
     list.appendChild(item);
   });
 }
@@ -893,7 +967,16 @@ async function eliminarCategoria(cat){
     ? `¿Eliminar la categoría "${cat}" y sus ${count} producto${count !== 1 ? 's' : ''}? Esta acción no se puede deshacer.`
     : `¿Eliminar la categoría "${cat}"?`;
   if(!confirm(msg)) return;
-  productos = productos.filter(p => p.tipo !== cat);
+  productos = productos.filter(p => {
+    const lista = Array.isArray(p.tipos) ? p.tipos : [p.tipo];
+    return !lista.includes(cat) || lista.length > 1;
+  }).map(p => {
+    if(Array.isArray(p.tipos) && p.tipos.includes(cat)){
+      const nuevos = p.tipos.filter(c => c !== cat);
+      return { ...p, tipos: nuevos, tipo: nuevos[0] };
+    }
+    return p;
+  });
   categoriasOcultas = categoriasOcultas.filter(c => c !== cat);
   renderCatToggles();
   buildAllCarousels();
@@ -912,3 +995,87 @@ function mostrarToast(msg){
   clearTimeout(t._timer);
   t._timer = setTimeout(() => t.classList.remove('show'), 2800);
 }
+
+// ════════════════════════════════════════════════════════
+//  BUSCADOR
+// ════════════════════════════════════════════════════════
+let searchTimeout = null;
+
+function abrirBuscador(){
+  const overlay = document.getElementById('search-overlay');
+  overlay.classList.add('active');
+  document.body.style.overflow = 'hidden';
+  document.getElementById('search-input').value = '';
+  document.getElementById('search-results').innerHTML = '';
+  document.getElementById('search-empty').style.display = 'none';
+  setTimeout(() => document.getElementById('search-input').focus(), 80);
+}
+
+function cerrarBuscador(){
+  document.getElementById('search-overlay').classList.remove('active');
+  document.body.style.overflow = '';
+}
+
+function onSearchInput(e){
+  clearTimeout(searchTimeout);
+  searchTimeout = setTimeout(() => ejecutarBusqueda(e.target.value), 180);
+}
+
+function ejecutarBusqueda(query){
+  const q = query.trim();
+  const resultsEl = document.getElementById('search-results');
+  const emptyEl   = document.getElementById('search-empty');
+  const countEl   = document.getElementById('search-count');
+
+  if(!q){ resultsEl.innerHTML = ''; emptyEl.style.display='none'; countEl.textContent=''; return; }
+
+  const palabras = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const encontrados = productos.filter(p => {
+    const titulo = p.nombre.toLowerCase();
+    return palabras.some(w => titulo.includes(w));
+  });
+
+  countEl.textContent = encontrados.length > 0
+    ? `${encontrados.length} resultado${encontrados.length !== 1 ? 's' : ''}`
+    : '';
+
+  if(!encontrados.length){
+    resultsEl.innerHTML = '';
+    emptyEl.style.display = 'block';
+    emptyEl.querySelector('.search-empty-term').textContent = `"${q}"`;
+    return;
+  }
+
+  emptyEl.style.display = 'none';
+  resultsEl.innerHTML = '';
+  encontrados.forEach(p => {
+    const card = document.createElement('div');
+    card.className = 'search-card';
+    const cats = Array.isArray(p.tipos) ? p.tipos.join(' · ') : (p.tipo || '');
+    card.innerHTML = `
+      <div class="search-card-img">
+        <img src="${p.img}" alt="${p.nombre}">
+      </div>
+      <div class="search-card-info">
+        <div class="search-card-cat">${cats}</div>
+        <div class="search-card-name">${resaltarPalabras(p.nombre, palabras)}</div>
+        <div class="search-card-desc">${p.desc ? p.desc.substring(0,80)+'…' : ''}</div>
+      </div>
+      <button class="search-card-btn">Ver</button>`;
+    card.addEventListener('click', () => { cerrarBuscador(); openModal(p); });
+    resultsEl.appendChild(card);
+  });
+}
+
+function resaltarPalabras(texto, palabras){
+  let result = texto;
+  palabras.forEach(w => {
+    const regex = new RegExp(`(${w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')})`, 'gi');
+    result = result.replace(regex, '<mark>$1</mark>');
+  });
+  return result;
+}
+
+document.addEventListener('keydown', e => {
+  if(e.key === 'Escape') cerrarBuscador();
+});
