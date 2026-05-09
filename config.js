@@ -43,15 +43,15 @@ const SITE_CONFIG = {
   instagram: "dulce.princesa.ok",  // Sin @
 
   contacto: {
-    label:      "Hablemos",
-    titulo:     "¿Buscás algo especial?",
-    waDisplay:  "+54 11 3452-1808",           
-    waTexto:    "Hola! Vi su página y me gustaría consultar para hacer un pedido.",
-    waTextoProducto: "Hola! Vi su página y me gustaría consultar por: *{nombre}*",
-    ctaTitulo:  "Hacemos tu pedido a medida",
-    ctaParrafo: "Cada creación es única y personalizada. Contanos qué estás buscando — sabores, ocasión, cantidad — y te respondemos a la brevedad con todos los detalles.",
-    ctaBoton:   "Escribinos por WhatsApp"
-  },
+  label:      "Hablemos",
+  titulo:     "¿Buscás algo especial?",
+  waDisplay:  "+54 11 3452-1808",           
+  waTexto:    "Hola! Vi su página y me gustaría consultar por sus productos.",
+  waTextoProducto: "Hola! Vi su página y me gustaría consultar por: *{nombre}*",
+  ctaTitulo:  "Hacemos tu pedido a medida",
+  ctaParrafo: "Cada creación es única y personalizada. Contanos qué estás buscando — sabores, ocasión, cantidad — y te respondemos a la brevedad con todos los detalles.",
+  ctaBoton:   "Escribinos por WhatsApp"
+},
 
   // ── FOOTER ─────────────────────────────────────────────────────
   footer: {
@@ -64,8 +64,8 @@ const SITE_CONFIG = {
   },
 
   // ── TIPO DE PRODUCTO (para los textos del panel admin) ─────────
-  tipoProducto:        "Tartas",               // Ej: "tortas", "tartas"
-  tipoProductoEjemplo: "Tarta de frutas",              // Ej: "torta de chocolate"
+  tipoProducto:        "Tartas",              // Ej: "tortas", "tartas"
+  tipoProductoEjemplo: "Tarta de frutas",     // Ej: "torta de chocolate"
 
   // ── CATEGORÍAS PREDEFINIDAS (panel admin) ──────────────────────
   // Las que aparecen en el dropdown al cargar el panel por primera vez

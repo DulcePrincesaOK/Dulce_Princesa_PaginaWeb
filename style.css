@@ -676,3 +676,11 @@
   border-color:var(--principal);
   background:color-mix(in srgb,var(--principal) 8%,var(--secciones));
 }
+
+
+.modal-precio{
+  font-size:22px;
+  font-weight:600;
+  color:var(--principal);
+  margin-bottom:1rem;
+}
