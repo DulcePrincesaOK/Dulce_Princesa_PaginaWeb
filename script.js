@@ -269,7 +269,8 @@ async function inicializar(){
   buildAllCarousels();
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  await cargarConfigEditable();
   applyConfig();
   inicializar();
   if(ADMIN_REQUEST){ pedirLoginAdmin(); }
@@ -1060,6 +1061,177 @@ async function eliminarCategoria(cat){
   mostrarToast('Guardando…');
   await guardarEnFirebase();
   mostrarToast(`Categoría "${cat}" eliminada ✓`);
+}
+
+// ════════════════════════════════════════════════════════
+//  ADMIN — Editar contenido de la página
+// ════════════════════════════════════════════════════════
+
+// Referencia a la config editable (persiste en Firebase)
+const CONFIG_REF = db.collection('catalogo').doc('siteConfig');
+
+// Imagen nosotros pendiente de guardar (base64)
+let nosotrosImgPendiente = null;
+
+async function cargarConfigEditable(){
+  try {
+    const snap = await CONFIG_REF.get({ source: 'server' });
+    if(snap.exists){
+      const data = snap.data();
+      // Mezclar sobre SITE_CONFIG
+      if(data.rubro)            SITE_CONFIG.rubro           = data.rubro;
+      if(data.ubicacion)        SITE_CONFIG.ubicacion        = data.ubicacion;
+      if(data.heroSubtitulo)    SITE_CONFIG.heroSubtitulo    = data.heroSubtitulo;
+      if(data.nosotros)         SITE_CONFIG.nosotros         = { ...SITE_CONFIG.nosotros, ...data.nosotros };
+      if(data.whatsapp)         SITE_CONFIG.whatsapp         = data.whatsapp;
+      if(data.instagram)        SITE_CONFIG.instagram        = data.instagram;
+      if(data.contacto)         SITE_CONFIG.contacto         = { ...SITE_CONFIG.contacto, ...data.contacto };
+      if(data.nosotrosImg)      SITE_CONFIG._nosotrosImg     = data.nosotrosImg;
+    }
+  } catch(err){
+    console.warn('No se pudo cargar configEditable:', err);
+  }
+}
+
+function abrirModalEditarPagina(){
+  const C = SITE_CONFIG;
+  // Rellenar campos Hero
+  document.getElementById('ep-rubro').value          = C.rubro || '';
+  document.getElementById('ep-ubicacion').value      = C.ubicacion || '';
+  // Convertir <br> en salto para textarea
+  document.getElementById('ep-hero-subtitulo').value = (C.heroSubtitulo || '').replace(/<br\s*\/?>/gi, '\n');
+
+  // Imagen nosotros
+  nosotrosImgPendiente = null;
+  const preview = document.getElementById('ep-nosotros-img-preview');
+  const thumb   = document.getElementById('ep-nosotros-img-thumb');
+  if(C._nosotrosImg){
+    thumb.src = C._nosotrosImg;
+    preview.style.display = 'block';
+    document.getElementById('ep-nosotros-img-texto').textContent = 'Imagen cargada — clic para cambiar';
+  } else {
+    preview.style.display = 'none';
+    document.getElementById('ep-nosotros-img-texto').textContent = 'Hacé clic para cambiar la imagen';
+  }
+
+  // Rellenar campos Nosotros
+  document.getElementById('ep-nos-label').value    = C.nosotros.label  || '';
+  document.getElementById('ep-nos-titulo').value   = C.nosotros.titulo || '';
+  const ps = C.nosotros.parrafos || ['','',''];
+  // Strip tags for editing
+  document.getElementById('ep-nos-p1').value = (ps[0]||'').replace(/<[^>]+>/g,'');
+  document.getElementById('ep-nos-p2').value = (ps[1]||'').replace(/<[^>]+>/g,'');
+  document.getElementById('ep-nos-p3').value = (ps[2]||'').replace(/<[^>]+>/g,'');
+  const stats = C.nosotros.stats || [{num:'',label:''},{num:'',label:''}];
+  document.getElementById('ep-stat1-num').value   = (stats[0]||{}).num   || '';
+  document.getElementById('ep-stat1-label').value = (stats[0]||{}).label || '';
+  document.getElementById('ep-stat2-num').value   = (stats[1]||{}).num   || '';
+  document.getElementById('ep-stat2-label').value = (stats[1]||{}).label || '';
+
+  // Rellenar campos Contacto
+  document.getElementById('ep-whatsapp').value          = C.whatsapp || '';
+  document.getElementById('ep-wa-display').value        = C.contacto.waDisplay || '';
+  document.getElementById('ep-wa-texto').value          = C.contacto.waTexto || '';
+  document.getElementById('ep-wa-texto-producto').value = C.contacto.waTextoProducto || '';
+  document.getElementById('ep-instagram').value         = C.instagram || '';
+  document.getElementById('ep-contacto-label').value    = C.contacto.label || '';
+  document.getElementById('ep-contacto-titulo').value   = C.contacto.titulo || '';
+  document.getElementById('ep-cta-titulo').value        = C.contacto.ctaTitulo || '';
+  document.getElementById('ep-cta-parrafo').value       = C.contacto.ctaParrafo || '';
+  document.getElementById('ep-cta-boton').value         = C.contacto.ctaBoton || '';
+
+  // Mostrar tab inicial
+  cambiarTabEP('hero');
+  document.getElementById('edit-pagina-modal').classList.add('active');
+}
+
+function cerrarModalEditarPagina(e){
+  if(e.target.id !== 'edit-pagina-modal') return;
+  document.getElementById('edit-pagina-modal').classList.remove('active');
+}
+
+function cambiarTabEP(tab){
+  document.querySelectorAll('.ep-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+  document.querySelectorAll('.ep-panel').forEach(p => p.style.display = 'none');
+  document.getElementById('ep-panel-' + tab).style.display = 'block';
+}
+
+function cargarImagenNosotros(e){
+  const file = e.target.files[0];
+  if(!file) return;
+  comprimirImagen(file, base64 => {
+    nosotrosImgPendiente = base64;
+    document.getElementById('ep-nosotros-img-thumb').src = base64;
+    document.getElementById('ep-nosotros-img-preview').style.display = 'block';
+    document.getElementById('ep-nosotros-img-texto').textContent = 'Imagen cargada — clic para cambiar';
+  });
+  e.target.value = '';
+}
+
+async function guardarEditarPagina(){
+  const C = SITE_CONFIG;
+
+  // ── Leer valores ──────────────────────────────────────
+  C.rubro      = document.getElementById('ep-rubro').value.trim();
+  C.ubicacion  = document.getElementById('ep-ubicacion').value.trim();
+  // Textarea usa \n, HTML usa <br>
+  C.heroSubtitulo = document.getElementById('ep-hero-subtitulo').value.trim().replace(/\n/g,'<br>');
+
+  C.nosotros.label  = document.getElementById('ep-nos-label').value.trim();
+  C.nosotros.titulo = document.getElementById('ep-nos-titulo').value.trim();
+  C.nosotros.parrafos = [
+    document.getElementById('ep-nos-p1').value.trim(),
+    document.getElementById('ep-nos-p2').value.trim(),
+    document.getElementById('ep-nos-p3').value.trim()
+  ].filter(p => p !== '');
+  C.nosotros.stats = [
+    { num: document.getElementById('ep-stat1-num').value.trim(), label: document.getElementById('ep-stat1-label').value.trim() },
+    { num: document.getElementById('ep-stat2-num').value.trim(), label: document.getElementById('ep-stat2-label').value.trim() }
+  ];
+
+  C.whatsapp  = document.getElementById('ep-whatsapp').value.trim().replace(/\D/g,'');
+  C.instagram = document.getElementById('ep-instagram').value.trim().replace(/^@/,'');
+  C.contacto.waDisplay       = document.getElementById('ep-wa-display').value.trim();
+  C.contacto.waTexto         = document.getElementById('ep-wa-texto').value.trim();
+  C.contacto.waTextoProducto = document.getElementById('ep-wa-texto-producto').value.trim();
+  C.contacto.label           = document.getElementById('ep-contacto-label').value.trim();
+  C.contacto.titulo          = document.getElementById('ep-contacto-titulo').value.trim();
+  C.contacto.ctaTitulo       = document.getElementById('ep-cta-titulo').value.trim();
+  C.contacto.ctaParrafo      = document.getElementById('ep-cta-parrafo').value.trim();
+  C.contacto.ctaBoton        = document.getElementById('ep-cta-boton').value.trim();
+
+  if(nosotrosImgPendiente){
+    C._nosotrosImg = nosotrosImgPendiente;
+  }
+
+  // ── Aplicar en vivo a la página ────────────────────────
+  applyConfig();
+  // Imagen nosotros (si se cambió)
+  if(C._nosotrosImg){
+    const imgEl = document.querySelector('.about-img-placeholder img');
+    if(imgEl) imgEl.src = C._nosotrosImg;
+  }
+
+  document.getElementById('edit-pagina-modal').classList.remove('active');
+  mostrarToast('Guardando…');
+
+  // ── Persistir en Firebase ──────────────────────────────
+  try {
+    await CONFIG_REF.set({
+      rubro:        C.rubro,
+      ubicacion:    C.ubicacion,
+      heroSubtitulo:C.heroSubtitulo,
+      nosotros:     C.nosotros,
+      whatsapp:     C.whatsapp,
+      instagram:    C.instagram,
+      contacto:     C.contacto,
+      nosotrosImg:  C._nosotrosImg || null
+    });
+    mostrarToast('Cambios guardados ✓');
+  } catch(err){
+    console.error('Error guardando configEditable:', err);
+    mostrarToast('⚠ Error al guardar. Revisá la conexión.');
+  }
 }
 
 // ════════════════════════════════════════════════════════

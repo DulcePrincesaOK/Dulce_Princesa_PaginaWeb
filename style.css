@@ -684,3 +684,23 @@
   color:var(--principal);
   margin-bottom:1rem;
 }
+/* ── TABS "Editar página" ─────────────────────────────── */
+.ep-tab{
+  background:none;
+  border:none;
+  border-bottom:2px solid transparent;
+  padding:8px 16px;
+  font-family:'Jost',sans-serif;
+  font-size:13px;
+  letter-spacing:1.5px;
+  text-transform:uppercase;
+  color:var(--text-soft);
+  cursor:pointer;
+  transition:color .2s,border-color .2s;
+  margin-bottom:-1px;
+}
+.ep-tab.active{
+  color:var(--principal);
+  border-bottom-color:var(--principal);
+}
+.ep-tab:hover:not(.active){ color:var(--text); }

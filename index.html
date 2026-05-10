@@ -205,7 +205,7 @@
     <button class="btn-admin-add" onclick="abrirModalAgregar()">+ Agregar producto</button>
     <button class="btn-admin-reset" onclick="abrirModalReorden()">⇅ Reordenar</button>
     <button class="btn-admin-reset" onclick="abrirModalCategorias()">👁 Categorías</button>
-    <button class="btn-admin-reset" onclick="resetearProductos()">↺ Restaurar originales</button>
+    <button class="btn-admin-reset" onclick="abrirModalEditarPagina()">✏ Editar página</button>
     <button onclick="logoutAdmin()">Salir</button>
   </div>
 </div>
@@ -317,6 +317,140 @@
 <div class="admin-toast" id="admin-toast"></div>
 
 <script src="script.js"></script>
+
+<!-- MODAL EDITAR PÁGINA (admin) -->
+<div class="admin-modal-overlay" id="edit-pagina-modal" onclick="cerrarModalEditarPagina(event)">
+  <div class="admin-modal" style="max-height:90vh;overflow-y:auto">
+    <button class="admin-close" onclick="document.getElementById('edit-pagina-modal').classList.remove('active')">✕</button>
+    <h2>Editar contenido de la página</h2>
+    <p class="a-subtitle">Los cambios se aplican al instante en toda la página</p>
+
+    <!-- TABS -->
+    <div class="ep-tabs" style="display:flex;gap:8px;margin:1.2rem 0 1.6rem;border-bottom:1px solid var(--detalles);padding-bottom:0">
+      <button class="ep-tab active" data-tab="hero" onclick="cambiarTabEP('hero')">Inicio</button>
+      <button class="ep-tab" data-tab="nosotros" onclick="cambiarTabEP('nosotros')">Nosotros</button>
+      <button class="ep-tab" data-tab="contacto" onclick="cambiarTabEP('contacto')">Contacto</button>
+    </div>
+
+    <!-- TAB: INICIO / HERO -->
+    <div class="ep-panel" id="ep-panel-hero">
+      <div class="admin-field">
+        <label>Rubro (ej: Indumentaria y joyería)</label>
+        <input type="text" id="ep-rubro" placeholder="Ej: Indumentaria y joyería">
+      </div>
+      <div class="admin-field">
+        <label>Ubicación (ej: Córdoba)</label>
+        <input type="text" id="ep-ubicacion" placeholder="Ej: Córdoba">
+      </div>
+      <div class="admin-field">
+        <label>Subtítulo del hero</label>
+        <textarea id="ep-hero-subtitulo" rows="2" placeholder="Frase principal debajo del título…"></textarea>
+      </div>
+      <div class="admin-field">
+        <label>Imagen de la sección Nosotros</label>
+        <label class="admin-foto-label" for="ep-nosotros-img-input" style="margin-top:6px">
+          <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <span id="ep-nosotros-img-texto">Hacé clic para cambiar la imagen</span>
+        </label>
+        <input type="file" id="ep-nosotros-img-input" accept="image/*" style="display:none" onchange="cargarImagenNosotros(event)">
+        <div id="ep-nosotros-img-preview" style="margin-top:10px;display:none">
+          <img id="ep-nosotros-img-thumb" src="" alt="Preview" style="max-width:160px;border-radius:4px;border:1px solid var(--detalles)">
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB: NOSOTROS -->
+    <div class="ep-panel" id="ep-panel-nosotros" style="display:none">
+      <div class="admin-field">
+        <label>Etiqueta (ej: Nuestra esencia)</label>
+        <input type="text" id="ep-nos-label" placeholder="">
+      </div>
+      <div class="admin-field">
+        <label>Título</label>
+        <input type="text" id="ep-nos-titulo" placeholder="">
+      </div>
+      <div class="admin-field">
+        <label>Párrafo 1</label>
+        <textarea id="ep-nos-p1" rows="3"></textarea>
+      </div>
+      <div class="admin-field">
+        <label>Párrafo 2</label>
+        <textarea id="ep-nos-p2" rows="3"></textarea>
+      </div>
+      <div class="admin-field">
+        <label>Párrafo 3</label>
+        <textarea id="ep-nos-p3" rows="3"></textarea>
+      </div>
+      <div class="admin-field">
+        <label>Stat 1 — Número / Símbolo</label>
+        <input type="text" id="ep-stat1-num" placeholder="Ej: 100%">
+      </div>
+      <div class="admin-field">
+        <label>Stat 1 — Descripción</label>
+        <input type="text" id="ep-stat1-label" placeholder="Ej: Estilo propio">
+      </div>
+      <div class="admin-field">
+        <label>Stat 2 — Número / Símbolo</label>
+        <input type="text" id="ep-stat2-num" placeholder="Ej: ★">
+      </div>
+      <div class="admin-field">
+        <label>Stat 2 — Descripción</label>
+        <input type="text" id="ep-stat2-label" placeholder="Ej: Tendencias actuales">
+      </div>
+    </div>
+
+    <!-- TAB: CONTACTO -->
+    <div class="ep-panel" id="ep-panel-contacto" style="display:none">
+      <div class="admin-field">
+        <label>Número de WhatsApp <span style="font-size:10px;color:var(--text-soft);text-transform:none;letter-spacing:0">(sin +, sin espacios · ej: 5491123456789)</span></label>
+        <input type="text" id="ep-whatsapp" placeholder="Ej: 5491123456789">
+        <p style="margin:4px 0 0;font-size:11px;color:var(--text-soft)">⚠ Al guardar, todos los botones y links de WhatsApp de la página se actualizan automáticamente.</p>
+      </div>
+      <div class="admin-field">
+        <label>Número visible (solo estético, ej: +54 351 123-4567)</label>
+        <input type="text" id="ep-wa-display" placeholder="+54 351 123-4567">
+      </div>
+      <div class="admin-field">
+        <label>Mensaje al contactar (botones genéricos)</label>
+        <textarea id="ep-wa-texto" rows="2"></textarea>
+      </div>
+      <div class="admin-field">
+        <label>Mensaje al consultar por un producto</label>
+        <textarea id="ep-wa-texto-producto" rows="2" placeholder="Usá {nombre} para incluir el nombre del producto"></textarea>
+      </div>
+      <div class="admin-field" style="margin-top:1.4rem;border-top:1px solid var(--detalles);padding-top:1.4rem">
+        <label>Usuario de Instagram <span style="font-size:10px;color:var(--text-soft);text-transform:none;letter-spacing:0">(sin @)</span></label>
+        <input type="text" id="ep-instagram" placeholder="Ej: alma_joyas1">
+        <p style="margin:4px 0 0;font-size:11px;color:var(--text-soft)">⚠ Al guardar, todos los links de Instagram de la página se actualizan automáticamente.</p>
+      </div>
+      <div class="admin-field">
+        <label>Etiqueta de contacto</label>
+        <input type="text" id="ep-contacto-label" placeholder="Ej: Hablemos">
+      </div>
+      <div class="admin-field">
+        <label>Título de contacto</label>
+        <input type="text" id="ep-contacto-titulo" placeholder="Ej: ¿Buscás algo especial?">
+      </div>
+      <div class="admin-field">
+        <label>Título del bloque CTA</label>
+        <input type="text" id="ep-cta-titulo" placeholder="">
+      </div>
+      <div class="admin-field">
+        <label>Texto del bloque CTA</label>
+        <textarea id="ep-cta-parrafo" rows="3"></textarea>
+      </div>
+      <div class="admin-field">
+        <label>Texto del botón CTA</label>
+        <input type="text" id="ep-cta-boton" placeholder="Ej: Escribinos por WhatsApp">
+      </div>
+    </div>
+
+    <div class="admin-modal-btns" style="margin-top:1.6rem">
+      <button class="btn-cancelar" onclick="document.getElementById('edit-pagina-modal').classList.remove('active')">Cancelar</button>
+      <button class="btn-guardar" onclick="guardarEditarPagina()">Guardar cambios</button>
+    </div>
+  </div>
+</div>
 
 <!-- MODAL LOGIN ADMIN -->
 <div class="login-modal-overlay" id="login-modal">
