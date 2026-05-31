@@ -3,7 +3,10 @@
 // ════════════════════════════════════════════════════════
 firebase.initializeApp(SITE_CONFIG.firebase);
 const db = firebase.firestore();
-const DOC_REF = db.collection('catalogo').doc('productos');
+// Cada producto es un documento en la subcolección "productos"
+// La metadata (categorías, orden, etc.) va en un doc separado "__meta__"
+const PRODS_COL = db.collection('catalogo').doc('productos').collection('items');
+const META_REF  = db.collection('catalogo').doc('_meta');
 const auth = firebase.auth();
 
 
@@ -30,9 +33,16 @@ const productosDefault = SITE_CONFIG.productosDefault;
 let productos = [];
 let posCarrusel = {};       // { catId: posicion }
 let carruselProds = {};     // { catId: [productos del carrusel] }
+
+// ── PAGINACIÓN por carrusel ────────────────────────────────────
+// catKey = nombre de categoría (o 'todos')
+const paginacion = {};
+// paginacion[catKey] = { lastDoc, agotado, cargando }
+
 let categoriasOcultas = []; // nombres de categorías ocultas
 let categoriaOrden = [];    // orden personalizado de categorías
 let ordenCategorias = {};
+let productosOcultos = [];  // IDs de productos ocultos individualmente
 
 const params = new URLSearchParams(location.search);
 const ADMIN_REQUEST = params.has('admin');
@@ -50,14 +60,36 @@ function applyConfig() {
   // Título del browser
   document.title = `${C.marcaPrincipal} ${C.marcaItalica}`;
 
-  // Fuentes — actualiza el link de Google Fonts dinámicamente
+  // Fuentes — lee tipografia de config.js, inyecta variables CSS y carga Google Fonts
+  const T = C.tipografia || {};
+
+  // Mapa de variable CSS → clave en tipografia
+  const fontVars = {
+    '--font-cuerpo':          T.cuerpo          || 'Jost',
+    '--font-nav':             T.nav             || T.cuerpo || 'Jost',
+    '--font-titulo-pagina':   T.tituloPagina    || 'Pinyon Script',
+    '--font-titulo-seccion':  T.tituloSeccion   || T.tituloPagina || 'Pinyon Script',
+    '--font-titulo-producto': T.tituloProducto  || T.tituloPagina || 'Pinyon Script',
+    '--font-titulo-admin':    T.tituloAdmin     || T.tituloPagina || 'Pinyon Script',
+  };
+
+  // Inyectar variables en :root
+  const root = document.documentElement;
+  Object.entries(fontVars).forEach(([varName, fontName]) => {
+    root.style.setProperty(varName, `'${fontName}'`);
+  });
+
+  // Actualizar Google Fonts con todas las fuentes únicas
   const gfonts = document.getElementById('gfonts');
   if (gfonts) {
-    const serif = C.fontSerif.replace(/ /g, '+');
-    const sans  = C.fontSans.replace(/ /g, '+');
-    gfonts.href = `https://fonts.googleapis.com/css2?family=${serif}:ital,wght@0,300;0,400;0,600;1,300;1,400&family=${sans}:wght@300;400;500&display=swap`;
+    const uniqueFonts = [...new Set(Object.values(fontVars))];
+    const families = uniqueFonts
+      .map(f => `family=${f.replace(/ /g, '+')}:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400`)
+      .join('&');
+    gfonts.href = `https://fonts.googleapis.com/css2?${families}&display=swap`;
   }
-  document.body.style.fontFamily = `'${C.fontSans}', sans-serif`;
+
+  document.body.style.fontFamily = `'${T.cuerpo || 'Jost'}', sans-serif`;
 
   // Colores CSS (sobreescribe el :root del CSS)
   applyColores(C.colores);
@@ -80,6 +112,7 @@ function applyConfig() {
   // ── NOSOTROS ─────────────────────────────────────────
   document.getElementById('nosotros-label').textContent = C.nosotros.label;
   document.getElementById('nosotros-titulo').textContent = C.nosotros.titulo;
+  document.getElementById('nosotros-slogan').textContent = C.nosotros.slogan;
   document.getElementById('nosotros-parrafos').innerHTML =
     C.nosotros.parrafos.map(p => `<p>${p}</p>`).join('');
   document.getElementById('nosotros-stats').innerHTML =
@@ -156,40 +189,170 @@ function applyColores(c) {
 // ════════════════════════════════════════════════════════
 //  FIREBASE: cargar y guardar
 // ════════════════════════════════════════════════════════
+// Carga metadata + primer batch de cada categoría conocida
 async function cargarDesdeFirebase(){
-  const snap = await DOC_REF.get({ source: 'server' });
-  if(snap.exists){
-    const data = snap.data();
-    if(data.lista){
-
-      categoriasOcultas = Array.isArray(data.categoriasOcultas)
-        ? data.categoriasOcultas
-        : [];
-
-      categoriaOrden = Array.isArray(data.categoriaOrden)
-        ? data.categoriaOrden
-        : [];
-
-      ordenCategorias = data.ordenCategorias || {};
-
-      return data.lista;
+  // 1. Metadata (1 lectura)
+  try {
+    const metaSnap = await META_REF.get({ source: 'server' });
+    if(metaSnap.exists){
+      const m = metaSnap.data();
+      categoriasOcultas = Array.isArray(m.categoriasOcultas) ? m.categoriasOcultas : [];
+      categoriaOrden    = Array.isArray(m.categoriaOrden)    ? m.categoriaOrden    : [];
+      ordenCategorias   = m.ordenCategorias || {};
+      productosOcultos  = Array.isArray(m.productosOcultos)  ? m.productosOcultos  : [];
+      // Categorías conocidas vienen del meta para no necesitar un query extra
+      if(Array.isArray(m.categorias) && m.categorias.length){
+        // Cargar primer batch por cada categoría en paralelo
+        const batches = await Promise.all(
+          m.categorias.map(cat => cargarBatchCategoria(cat))
+        );
+        batches.forEach((prods, i) => {
+          prods.forEach(p => {
+            if(!productos.find(x => x.id === p.id)) productos.push(p);
+          });
+        });
+        return productos;
+      }
+    } else {
+      await META_REF.set({ categoriasOcultas: [], categoriaOrden: [], ordenCategorias: {}, productosOcultos: [], categorias: [] });
     }
+  } catch(err) {
+    console.warn('No se pudo cargar metadata:', err);
   }
-  await DOC_REF.set({ lista: [], categoriasOcultas: [] });
-  return [];
+
+  // Fallback: si no hay categorías en meta, carga todo (primera vez o base vieja)
+  const prodsSnap = await PRODS_COL.get({ source: 'server' });
+  if(prodsSnap.empty) return [];
+  return prodsSnap.docs.map(doc => ({ ...doc.data(), id: doc.id }));
 }
 
+// Carga un batch de N productos para UNA categoría
+async function cargarBatchCategoria(cat, lastDoc = null){
+  const BATCH = (SITE_CONFIG.paginacionBatch || 6);
+  let q = PRODS_COL
+    .where('tipos', 'array-contains', cat)
+    .orderBy('nombre')
+    .limit(BATCH);
+  if(lastDoc) q = q.startAfter(lastDoc);
+
+  const snap = await q.get({ source: 'server' });
+  const docs  = snap.docs;
+  const prods = docs.map(d => ({ ...d.data(), id: d.id }));
+
+  // Guardar cursor para siguiente batch
+  if(!paginacion[cat]) paginacion[cat] = {};
+  paginacion[cat].lastDoc  = docs.length ? docs[docs.length - 1] : paginacion[cat].lastDoc;
+  paginacion[cat].agotado  = docs.length < BATCH;
+  paginacion[cat].cargando = false;
+
+  return prods;
+}
+
+// Carga el siguiente batch para una categoría y agrega al carrusel
+async function cargarMasEnCategoria(cat){
+  const estado = paginacion[cat];
+  if(!estado || estado.agotado || estado.cargando) return;
+
+  estado.cargando = true;
+  const nuevos = await cargarBatchCategoria(cat, estado.lastDoc);
+
+  if(!nuevos.length){ estado.agotado = true; return; }
+
+  // Agregar a la lista global sin duplicados
+  nuevos.forEach(p => {
+    if(!productos.find(x => x.id === p.id)) productos.push(p);
+  });
+
+  // Agregar las cards nuevas directamente al track (sin reconstruir todo)
+  const catId  = getCatId(cat);
+  const track  = document.getElementById('carrusel-track-' + catId);
+  if(!track) return;
+  const cardW = getCardWidth();
+  nuevos.forEach(p => {
+    if(productosOcultos.includes(p.id) && !ADMIN_MODE) return;
+    const card = crearCard(p, false);
+    card.style.flex = `0 0 ${cardW}px`;
+    track.appendChild(card);
+    carruselProds[catId].push(p);
+  });
+
+  // Actualizar botones (podrían haberse ocultado si solo había 1 pantalla)
+  const visible = visiblePorPantalla();
+  const total   = carruselProds[catId].length;
+  const btnPrev = document.getElementById('btn-prev-' + catId);
+  const btnNext = document.getElementById('btn-next-' + catId);
+  if(btnPrev) btnPrev.style.display = total <= visible ? 'none' : '';
+  if(btnNext) btnNext.style.display = total <= visible ? 'none' : '';
+}
+
+// Guarda SOLO la metadata (categorías, orden, visibilidad)
+async function guardarMetaEnFirebase(){
+  // Recalcular lista de categorías conocidas para el loader paginado
+  const cats = getCategorias();
+  await META_REF.set({
+    categoriasOcultas,
+    categoriaOrden,
+    ordenCategorias,
+    productosOcultos,
+    categorias: cats
+  });
+}
+
+// Guarda/actualiza UN producto en su propio documento
+async function guardarProductoEnFirebase(prod){
+  const docRef = prod.id
+    ? PRODS_COL.doc(prod.id)
+    : PRODS_COL.doc();                // nuevo ID automático
+  if(!prod.id) prod.id = docRef.id;   // guardar el ID en el objeto
+  await docRef.set(prod);
+  return prod;
+}
+
+// Elimina UN producto de Firestore
+async function eliminarProductoEnFirebase(prodId){
+  await PRODS_COL.doc(prodId).delete();
+}
+
+// Guarda TODO (batch): útil para restaurar o migrar desde formato legacy
 async function guardarEnFirebase(){
   try {
-    await DOC_REF.set({
-      lista: productos,
+    const batch = db.batch();
+
+    // 1. Metadata
+    batch.set(META_REF, {
       categoriasOcultas,
       categoriaOrden,
-      ordenCategorias
+      ordenCategorias,
+      productosOcultos
     });
+
+    // 2. Obtener IDs actuales en Firestore para detectar eliminados
+    const existentes = await PRODS_COL.get({ source: 'server' });
+    const idsEnFirestore = new Set(existentes.docs.map(d => d.id));
+    const idsActuales    = new Set(productos.map(p => p.id).filter(Boolean));
+
+    // Eliminar los que ya no están en memoria
+    existentes.docs.forEach(doc => {
+      if(!idsActuales.has(doc.id)) batch.delete(doc.ref);
+    });
+
+    // Crear o actualizar cada producto
+    productos.forEach(p => {
+      if(!p.id){
+        const ref = PRODS_COL.doc();
+        p.id = ref.id;
+        batch.set(ref, p);
+      } else {
+        batch.set(PRODS_COL.doc(p.id), p);
+      }
+    });
+
+    await batch.commit();
+    return true;
   } catch(err) {
     console.error('Error guardando en Firebase:', err);
-    mostrarToast('⚠ Error al guardar. Revisá la conexión.');
+    mostrarToastError('⚠ Error al guardar. Mala conexión, límite excedido de imágenes o superposicion de pestañas.<br>Revise conexión a internet, cierre las demás pestañas y vuelva a iniciar sesión en modo administrador.', 20000);
+    return false;
   }
 }
 
@@ -202,6 +365,11 @@ function pedirLoginAdmin(){
   ['login-email','login-password'].forEach(id => {
     document.getElementById(id).onkeydown = e => { if(e.key === 'Enter') submitLogin(); };
   });
+}
+
+function mostrarAyudaContrasena(e){
+  e.preventDefault();
+  alert('Para restablecer tu contraseña, contactate con el servicio técnico de LUCANSOFT.');
 }
 
 function cancelarLogin(){
@@ -258,12 +426,18 @@ async function inicializar(){
         p.id = 'prod_' + Date.now() + '_' + i + '_' + Math.random().toString(36).slice(2,8);
       }
     });
-    if(ADMIN_MODE){
-      await guardarEnFirebase();
-    }
+    //if(ADMIN_MODE){
+    //  await guardarEnFirebase();
+    //}
   } catch(err){
-    console.error('Error cargando Firebase:', err);
-    productos = productosDefault.map(p => ({...p}));
+    console.warn('Primer intento fallido, reintentando...', err);
+    try {
+      await new Promise(r => setTimeout(r, 1200));
+      productos = await cargarDesdeFirebase();
+    } catch(err2){
+      console.error('Error cargando Firebase:', err2);
+      productos = productosDefault.map(p => ({...p}));
+    }
   }
   document.getElementById('carrusel-loading').style.display = 'none';
   buildAllCarousels();
@@ -337,84 +511,73 @@ function buildAllCarousels(){
       return lista.includes(cat);
     });
 
-    // ORDEN PERSONALIZADO DE ESA CATEGORÍA
     const orden = ordenCategorias[cat];
-
     if(orden){
-
       prods.sort((a,b) => {
-
         const ia = orden.indexOf(a.id);
         const ib = orden.indexOf(b.id);
-
-        // productos nuevos quedan al final
         if(ia === -1) return 1;
         if(ib === -1) return -1;
-
         return ia - ib;
       });
-
     }
 
     if(!prods.length) return;
 
     const catId = getCatId(cat);
-
     const section = crearSeccionCarrusel(cat, catId, idx > 0);
-
     container.appendChild(section);
 
-    toInit.push({ catId, prods: [...prods] });
-
+    // ← catNombre agregado
+    toInit.push({ catId, catNombre: cat, prods: [...prods] });
   });
 
   // "Todos los productos" al final
   if(productos.length > 0){
-
-    const section = crearSeccionCarrusel(
-      'Todos los productos',
-      'todos',
-      visibles.length > 0
-    );
-
+    const section = crearSeccionCarrusel('Todos los productos', 'todos', visibles.length > 0);
     container.appendChild(section);
 
-    toInit.push({
-      catId: 'todos',
-      prods: [...productos]
-    });
+    // ← catNombre: 'todos' (no pagina contra Firestore)
+    toInit.push({ catId: 'todos', catNombre: 'todos', prods: [...productos] });
   }
 
-  // Construir tracks
-  toInit.forEach(({ catId, prods }) => {
+  // Construir tracks + eventos
+  toInit.forEach(({ catId, catNombre, prods }) => {
 
     buildTrack(catId, prods);
 
-    const track = document.getElementById(
-      'carrusel-track-' + catId
-    );
-
+    const track = document.getElementById('carrusel-track-' + catId);
     if(!track) return;
 
+    // ── Touch (mobile) ──────────────────────────────────────────
     let startX = 0;
-
     track.addEventListener('touchstart', e => {
       startX = e.touches[0].clientX;
-    }, {passive:true});
+    }, { passive: true });
 
     track.addEventListener('touchend', e => {
-
-      const diff =
-        startX - e.changedTouches[0].clientX;
-
-      if(Math.abs(diff) > 40){
-        moverCarrusel(catId, diff > 0 ? 1 : -1);
-      }
-
+      const diff = startX - e.changedTouches[0].clientX;
+      if(Math.abs(diff) > 40) moverCarrusel(catId, diff > 0 ? 1 : -1);
     });
 
-  });
+    // ── Lazy load al scroll horizontal ─────────────────────────
+    // Solo para categorías reales (no "todos", que ya está en memoria)
+    if(catNombre === 'todos') return;
 
+    const outer = track.closest('.carrusel-track-outer');
+    if(!outer) return;
+
+    outer.addEventListener('scroll', () => {
+      const total   = carruselProds[catId]?.length || 0;
+      const pos     = posCarrusel[catId] || 0;
+      const visible = visiblePorPantalla();
+      // Dispara cuando quedan ≤2 cards para llegar al final
+      if(total - pos - visible <= 2){
+        cargarMasEnCategoria(catNombre);
+      }
+    }, { passive: true });
+
+  });
 }
 
 function crearSeccionCarrusel(cat, catId, showDivider){
@@ -453,14 +616,19 @@ function buildTrack(catId, prods){
   const track = document.getElementById('carrusel-track-' + catId);
   if(!track || !prods.length) return;
 
+  // En modo visitante, ocultar los productos marcados como no visibles
+  const prodsVisibles = ADMIN_MODE
+    ? prods
+    : prods.filter(p => !productosOcultos.includes(p.id));
+
   const visible = visiblePorPantalla();
   const cardW   = getCardWidth();
 
-  carruselProds[catId] = prods;
+  carruselProds[catId] = prodsVisibles;
   posCarrusel[catId]   = 0;
   track.innerHTML      = '';
 
-  prods.forEach(p => {
+  prodsVisibles.forEach(p => {
     const card = crearCard(p, false);
     card.style.flex = `0 0 ${cardW}px`;
     track.appendChild(card);
@@ -468,14 +636,15 @@ function buildTrack(catId, prods){
 
   const btnPrev = document.getElementById('btn-prev-' + catId);
   const btnNext = document.getElementById('btn-next-' + catId);
-  const ocultar = prods.length <= visible;
+  const ocultar = prodsVisibles.length <= visible;
   if(btnPrev) btnPrev.style.display = ocultar ? 'none' : '';
   if(btnNext) btnNext.style.display = ocultar ? 'none' : '';
 }
 
 function crearCard(p, esClonado){
   const card = document.createElement('div');
-  card.className = 'producto-card';
+  const estaOculto = productosOcultos.includes(p.id);
+  card.className = 'producto-card' + (estaOculto ? ' producto-oculto' : '');
   card.innerHTML = `
     <div class="prod-img-placeholder">
       <img src="${p.img}" alt="${p.nombre}">
@@ -504,6 +673,22 @@ function crearCard(p, esClonado){
     btnEdit.style.right = '50px';
     btnEdit.addEventListener('click', e => { e.stopPropagation(); abrirModalEditar(p); });
     card.appendChild(btnEdit);
+
+    const btnVis = document.createElement('button');
+    btnVis.className = 'admin-visibility-btn' + (estaOculto ? ' is-hidden' : '');
+    btnVis.title = estaOculto ? 'Producto oculto — clic para mostrar' : 'Ocultar producto';
+    btnVis.innerHTML = estaOculto
+      ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`
+      : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
+    btnVis.addEventListener('click', e => { e.stopPropagation(); toggleVisibilidadProducto(p, card, btnVis); });
+    card.appendChild(btnVis);
+
+    if(estaOculto){
+      const badge = document.createElement('div');
+      badge.className = 'oculto-badge';
+      badge.textContent = 'No visible';
+      card.appendChild(badge);
+    }
   }
 
   card.addEventListener('click', () => openModal(p));
@@ -618,13 +803,61 @@ async function eliminarProducto(p){
   if(idx > -1) productos.splice(idx, 1);
   buildAllCarousels();
   mostrarToast('Guardando…');
-  await guardarEnFirebase();
-  mostrarToast('Producto eliminado ✓');
+  try {
+    if(p.id) await eliminarProductoEnFirebase(p.id);
+    await guardarMetaEnFirebase();
+    mostrarToast('Producto eliminado ✓');
+  } catch(err) {
+    console.error('Error eliminando producto:', err);
+    mostrarToastError('⚠ Error al eliminar. Revisá la conexión.', 5000);
+  }
 }
 
 // ════════════════════════════════════════════════════════
-//  ADMIN — Agregar / Editar
+//  ADMIN — Visibilidad individual de producto
 // ════════════════════════════════════════════════════════
+async function toggleVisibilidadProducto(p, card, btn){
+  const estaOculto = productosOcultos.includes(p.id);
+
+  if(estaOculto){
+    // Mostrar → quitar del array
+    productosOcultos = productosOcultos.filter(id => id !== p.id);
+  } else {
+    // Ocultar → agregar al array
+    productosOcultos.push(p.id);
+  }
+
+  // Actualizar visual de la card sin reconstruir todo
+  const ahoraOculto = !estaOculto;
+  card.classList.toggle('producto-oculto', ahoraOculto);
+  btn.classList.toggle('is-hidden', ahoraOculto);
+  btn.title = ahoraOculto ? 'Producto oculto — clic para mostrar' : 'Ocultar producto';
+  btn.innerHTML = ahoraOculto
+    ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`
+    : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
+
+  // Actualizar o quitar el badge "No visible"
+  const badgeExistente = card.querySelector('.oculto-badge');
+  if(ahoraOculto && !badgeExistente){
+    const badge = document.createElement('div');
+    badge.className = 'oculto-badge';
+    badge.textContent = 'No visible';
+    card.appendChild(badge);
+  } else if(!ahoraOculto && badgeExistente){
+    badgeExistente.remove();
+  }
+
+  mostrarToast('Guardando…');
+  try {
+    await guardarMetaEnFirebase();
+    mostrarToast(ahoraOculto ? 'Producto ocultado ✓' : 'Producto visible ✓');
+  } catch(err) {
+    console.error('Error guardando visibilidad:', err);
+    mostrarToastError('⚠ Error al guardar. Revisá la conexión.', 5000);
+  }
+}
+
+
 let fotosBase64 = [];      // array de todas las fotos
 let portadaIdx = 0;        // índice de la foto de portada
 let productoEditando = null;
@@ -703,7 +936,7 @@ function comprimirImagen(file, callback){
   reader.onload = ev => {
     const img = new Image();
     img.onload = () => {
-      const MAX = 900;
+      const MAX = 600;
       let w = img.width, h = img.height;
       if(w > MAX){ h = Math.round(h * MAX / w); w = MAX; }
       if(h > MAX){ w = Math.round(w * MAX / h); h = MAX; }
@@ -805,9 +1038,17 @@ async function guardarProducto(){
   buildAllCarousels();
   document.getElementById('admin-modal').classList.remove('active');
   mostrarToast('Guardando…');
-  await guardarEnFirebase();
-  mostrarToast('Producto guardado ✓');
-  setTimeout(() => scrollToSection('productos'), 300);
+  try {
+    // Guardar solo el producto que cambió (no toda la lista)
+    const prodTarget = productoEditando || productos[productos.length - 1];
+    await guardarProductoEnFirebase(prodTarget);
+    await guardarMetaEnFirebase();
+    mostrarToast('Producto guardado ✓');
+    setTimeout(() => scrollToSection('productos'), 300);
+  } catch(err) {
+    console.error('Error guardando producto:', err);
+    mostrarToastError('⚠ Error al guardar. Mala conexión, límite excedido de imágenes o superposicion de pestañas.<br>Revise conexión a internet, cierre las demás pestañas y vuelva a iniciar sesión en modo administrador.', 20000);
+  }
   productoEditando = null;
   fotosBase64 = [];
   portadaIdx = 0;
@@ -837,10 +1078,13 @@ async function resetearProductos(){
   if(!confirm('¿Restaurar el catálogo original? Se perderán todos los cambios.')) return;
   productos = productosDefault.map(p => ({...p}));
   categoriasOcultas = [];
+  productosOcultos = [];
   buildAllCarousels();
   mostrarToast('Guardando…');
-  await guardarEnFirebase();
-  mostrarToast('Catálogo restaurado ✓');
+  const exito = await guardarEnFirebase();
+  if(exito) {
+    mostrarToast('Catálogo restaurado ✓');
+  }
 }
 
 // ════════════════════════════════════════════════════════
@@ -944,10 +1188,13 @@ async function guardarReorden(){
     .classList.remove('active');
 
   mostrarToast('Guardando orden…');
-
-  await guardarEnFirebase();
-
-  mostrarToast('Orden guardado ✓');
+  try {
+    await guardarMetaEnFirebase();
+    mostrarToast('Orden guardado ✓');
+  } catch(err) {
+    console.error('Error guardando orden:', err);
+    mostrarToastError('⚠ Error al guardar. Revisá la conexión.', 5000);
+  }
 }
 
 // ════════════════════════════════════════════════════════
@@ -1035,8 +1282,13 @@ async function guardarCategorias(){
   buildAllCarousels();
   document.getElementById('cat-modal').classList.remove('active');
   mostrarToast('Guardando…');
-  await guardarEnFirebase();
-  mostrarToast('Categorías actualizadas ✓');
+  try {
+    await guardarMetaEnFirebase();
+    mostrarToast('Categorías actualizadas ✓');
+  } catch(err) {
+    console.error('Error guardando categorías:', err);
+    mostrarToastError('⚠ Error al guardar. Revisá la conexión.', 5000);
+  }
 }
 
 async function eliminarCategoria(cat){
@@ -1059,8 +1311,14 @@ async function eliminarCategoria(cat){
   renderCatToggles();
   buildAllCarousels();
   mostrarToast('Guardando…');
-  await guardarEnFirebase();
-  mostrarToast(`Categoría "${cat}" eliminada ✓`);
+  try {
+    // Usa batch completo porque hay productos eliminados
+    const exito = await guardarEnFirebase();
+    if(exito) mostrarToast(`Categoría eliminada ✓`);
+  } catch(err) {
+    console.error('Error eliminando categoría:', err);
+    mostrarToastError('⚠ Error al eliminar. Revisá la conexión.', 5000);
+  }
 }
 
 // ════════════════════════════════════════════════════════
@@ -1075,7 +1333,7 @@ let nosotrosImgPendiente = null;
 
 async function cargarConfigEditable(){
   try {
-    const snap = await CONFIG_REF.get({ source: 'server' });
+    const snap = await CONFIG_REF.get({ source: 'default' });
     if(snap.exists){
       const data = snap.data();
       // Mezclar sobre SITE_CONFIG
@@ -1122,6 +1380,11 @@ function abrirModalEditarPagina(){
   document.getElementById('ep-nos-p1').value = (ps[0]||'').replace(/<[^>]+>/g,'');
   document.getElementById('ep-nos-p2').value = (ps[1]||'').replace(/<[^>]+>/g,'');
   document.getElementById('ep-nos-p3').value = (ps[2]||'').replace(/<[^>]+>/g,'');
+  
+
+  document.getElementById('edit-nosotros-slogan').value = C.nosotros.slogan || '';
+
+
   const stats = C.nosotros.stats || [{num:'',label:''},{num:'',label:''}];
   document.getElementById('ep-stat1-num').value   = (stats[0]||{}).num   || '';
   document.getElementById('ep-stat1-label').value = (stats[0]||{}).label || '';
@@ -1184,6 +1447,7 @@ async function guardarEditarPagina(){
     document.getElementById('ep-nos-p2').value.trim(),
     document.getElementById('ep-nos-p3').value.trim()
   ].filter(p => p !== '');
+  C.nosotros.slogan = document.getElementById('edit-nosotros-slogan').value.trim();
   C.nosotros.stats = [
     { num: document.getElementById('ep-stat1-num').value.trim(), label: document.getElementById('ep-stat1-label').value.trim() },
     { num: document.getElementById('ep-stat2-num').value.trim(), label: document.getElementById('ep-stat2-label').value.trim() }
@@ -1243,6 +1507,14 @@ function mostrarToast(msg){
   t.classList.add('show');
   clearTimeout(t._timer);
   t._timer = setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+function mostrarToastError(msg, duracion = 2800){
+  const t = document.getElementById('admin-toast');
+  t.innerHTML = msg;
+  t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.remove('show'), duracion);
 }
 
 // ════════════════════════════════════════════════════════
@@ -1325,6 +1597,27 @@ function resaltarPalabras(texto, palabras){
   return result;
 }
 
+
+
+
+function toggleLoginPassword() {
+  const input = document.getElementById('login-password');
+  const iconShow = document.getElementById('eye-icon-show');
+  const iconHide = document.getElementById('eye-icon-hide');
+  if (input.type === 'password') {
+    input.type = 'text';
+    iconShow.style.display = 'none';
+    iconHide.style.display = '';
+  } else {
+    input.type = 'password';
+    iconShow.style.display = '';
+    iconHide.style.display = 'none';
+  }
+}
+
+
+
+
 document.addEventListener('keydown', e => {
   if(e.key === 'Escape') cerrarBuscador();
 });
@@ -1348,3 +1641,4 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
 });
+
