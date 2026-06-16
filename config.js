@@ -155,7 +155,7 @@ const SITE_CONFIG = {
   // Se usan en la primera visita, antes de que Firebase responda.
   // Si el admin sube una imagen nueva desde el panel, se sobreescribe
   // y se guarda en caché — igual que los productos.
-  heroLogoImgDefault: "https://github.com/DulcePrincesaOK/Dulce_Princesa_PaginaWeb/blob/main/img/LOGO.png?raw=true",
+  heroLogoImgDefault: "https://github.com/DulcePrincesaOK/Dulce_Princesa_PaginaWeb/blob/main/img/LOGOHERO.png?raw=true",
   navLogoImgDefault:  null,
 
   productosDefault: []
