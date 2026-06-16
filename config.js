@@ -11,7 +11,7 @@ const SITE_CONFIG = {
   marcaItalica:   "Princesa",   // Parte en cursiva y con color del acento
 
   // ── DESCRIPCIÓN CORTA ──────────────────────────────────────────
-  rubro:     "Repostería artesanal", 
+  rubro:     "Reposteria Artesanal", 
   ubicacion: "Paso del Rey",          // Ej: "Buenos Aires", "Palermo"
 
   // ── HERO ───────────────────────────────────────────────────────
@@ -40,15 +40,15 @@ const SITE_CONFIG = {
   },
 
   // ── CONTACTO ───────────────────────────────────────────────────
-  whatsapp:  "541134521808",       // Sin +, sin espacios. Ej: "5491123456789"
+  whatsapp:  "541134521808",         // Sin +, sin espacios. Ej: "5491123456789"
   instagram: "dulce.princesa.ok",  // Sin @
 
   contacto: {
   label:      "Hablemos",
   titulo:     "¿Buscás algo especial?",
   waDisplay:  "+54 11 3452-1808",           
-  waTexto:    "Hola! Vi su página y me gustaría consultar por sus productos.",
-  waTextoProducto: "Hola! Vi su página y me gustaría consultar por: *{nombre}*",
+  waTexto:    "Hola! Como estas? Me gustaria consultarte por tus productos!",
+  waTextoProducto: "Hola! Como estas? Me gustaria consultarte por: *{nombre}*",
   ctaTitulo:  "Hacemos tu pedido a medida",
   ctaParrafo: "Cada creación es única y personalizada. Contanos qué estás buscando — sabores, ocasión, cantidad — y te respondemos a la brevedad con todos los detalles.",
   ctaBoton:   "Escribinos por WhatsApp"
@@ -59,16 +59,36 @@ const SITE_CONFIG = {
     copyright: "© 2026 Dulce Princesa · Amor en cada ingrediente"
   },
 
+  // ── SEO / OPEN GRAPH ───────────────────────────────────────────
+  // Controla el <title>, la preview de WhatsApp/redes y el SEO general.
+  // Editá solo este bloque; script.js lo aplica automáticamente.
+  seo: {
+    // Pestaña del browser y título principal de OG/Twitter
+    title:       "Dulce Princesa · Repostería Artesanal · Paso del Rey",
+
+    // Descripción para buscadores y previews de WhatsApp/redes
+    description: "Tortas, meriendas y postres artesanales elaborados con amor. Pedidos personalizados. Paso del Rey.",
+
+    // URL canónica del sitio (sin barra final)
+    url:         "https://github.com/DulcePrincesaOK/Dulce_Princesa_PaginaWeb",
+
+    // Imagen que aparece al compartir el link (idealmente 1200×630 px)
+    image:       "https://github.com/DulcePrincesaOK/Dulce_Princesa_PaginaWeb/blob/main/img/logo.png?raw=true",
+
+    // Idioma/locale (dejá es_AR para Argentina)
+    locale:      "es_AR"
+  },
+
   // ── ADMIN ──────────────────────────────────────────────────────
   admin: {
     nombrePanel: "Dulce Princesa"   // Aparece en la barra de administrador
   },
 
   // ── TIPO DE PRODUCTO (para los textos del panel admin) ─────────
-  tipoProducto:        "Tartas",               
-  tipoProductoEjemplo: "Tarta de frutas", 
+  tipoProducto:        "Tartas",               // Ej: "joya", "prenda", "producto"
+  tipoProductoEjemplo: "Tarta de frutas", // Ej: "Anillo de plata", "Vestido talle M"
 
-  paginacionBatch: 6, // productos por batch por carrusel
+  paginacionBatch: 8, // productos por batch por carrusel
 
   // ── CATEGORÍAS PREDEFINIDAS (panel admin) ──────────────────────
   // Las que aparecen en el dropdown al cargar el panel por primera vez
@@ -94,7 +114,7 @@ const SITE_CONFIG = {
     cuerpo:          "Inter",
 
     // Logo en el nav (marca del negocio)
-    nav:             "Cormorant Garamond",
+    nav:             "EB Garamond",
 
     // Título grande en el hero (nombre de la marca)
     tituloPagina:    "Pinyon Script",
@@ -131,5 +151,12 @@ const SITE_CONFIG = {
   // ── CATÁLOGO INICIAL / RESTAURACIÓN ────────────────────────────
   // Estos son los productos que se cargan si Firebase está vacío
   // o cuando el admin presiona "Restaurar originales"
+  // ── IMÁGENES POR DEFECTO (hardcodeadas) ───────────────────────
+  // Se usan en la primera visita, antes de que Firebase responda.
+  // Si el admin sube una imagen nueva desde el panel, se sobreescribe
+  // y se guarda en caché — igual que los productos.
+  heroLogoImgDefault: "https://github.com/DulcePrincesaOK/Dulce_Princesa_PaginaWeb/blob/main/img/LOGO.png?raw=true",
+  navLogoImgDefault:  null,
+
   productosDefault: []
 };

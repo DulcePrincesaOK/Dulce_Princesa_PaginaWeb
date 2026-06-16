@@ -31,6 +31,7 @@ const productosDefault = SITE_CONFIG.productosDefault;
 //  ESTADO GLOBAL
 // ════════════════════════════════════════════════════════
 let productos = [];
+let carrito = []; // Variable global para guardar el pedido
 let posCarrusel = {};       // { catId: posicion }
 let carruselProds = {};     // { catId: [productos del carrusel] }
 
@@ -57,8 +58,9 @@ let ADMIN_MODE = false;
 function applyConfig() {
   const C = SITE_CONFIG;
 
-  // Título del browser
-  document.title = `${C.marcaPrincipal} ${C.marcaItalica}`;
+  // Título del browser y SEO/Open Graph
+  document.title = C.seo?.title || `${C.marcaPrincipal} ${C.marcaItalica}`;
+  applySEO(C.seo);
 
   // Fuentes — lee tipografia de config.js, inyecta variables CSS y carga Google Fonts
   const T = C.tipografia || {};
@@ -95,8 +97,17 @@ function applyConfig() {
   applyColores(C.colores);
 
   // ── NAV ──────────────────────────────────────────────
-  document.getElementById('nav-logo').innerHTML =
-    `${C.marcaPrincipal} <span>${C.marcaItalica}</span>`;
+  const navLogoContainer = document.getElementById('nav-logo');
+  const navLogoSrc = C._navLogoImg || C.navLogoImgDefault || null;
+  if (navLogoSrc) {
+    navLogoContainer.innerHTML = `<img src="${navLogoSrc}" class="nav-logo-img" alt="Logo"> ${C.marcaPrincipal} <span>${C.marcaItalica}</span>`;
+  } else {
+    navLogoContainer.innerHTML = `${C.marcaPrincipal} <span>${C.marcaItalica}</span>`;
+  }
+  // Añadir flex para alinear imagen y texto perfectamente
+  navLogoContainer.style.display = 'flex';
+  navLogoContainer.style.alignItems = 'center';
+  navLogoContainer.style.gap = '10px';
   document.getElementById('nav-ig-link').href =
     `https://instagram.com/${C.instagram}`;
   document.getElementById('nav-wa-link').href =
@@ -105,8 +116,23 @@ function applyConfig() {
   // ── HERO ─────────────────────────────────────────────
   document.getElementById('hero-eyebrow-1').textContent = `· ${C.rubro} ·`;
   document.getElementById('hero-eyebrow-2').textContent = C.ubicacion;
-  document.getElementById('hero-title').innerHTML =
-    `${C.marcaPrincipal}<br><em>${C.marcaItalica}</em>`;
+
+  // Título hero: imagen si existe, texto si no
+  const heroTitleText = document.getElementById('hero-title');
+  const heroTitleImgWrap = document.getElementById('hero-title-img-wrap');
+  const heroTitleImg = document.getElementById('hero-title-img');
+  // Firebase/caché primero; si no hay nada, usa el default hardcodeado de config.js
+  const heroLogoSrc = C._heroLogoImg || C.heroLogoImgDefault || null;
+  if(heroLogoSrc){
+    heroTitleText.style.display = 'none';
+    heroTitleImgWrap.style.display = 'block';
+    heroTitleImg.src = heroLogoSrc;
+  } else {
+    heroTitleImgWrap.style.display = 'none';
+    heroTitleText.style.display = '';
+    heroTitleText.innerHTML = `${C.marcaPrincipal}<br><em>${C.marcaItalica}</em>`;
+  }
+
   document.getElementById('hero-subtitle').innerHTML = C.heroSubtitulo;
 
   // ── NOSOTROS ─────────────────────────────────────────
@@ -171,6 +197,54 @@ function applyConfig() {
 }
 
 // ════════════════════════════════════════════════════════
+//  APLICAR SEO — inyecta <title>, Open Graph y meta tags
+//  usando los valores de config.js → seo {}
+// ════════════════════════════════════════════════════════
+function applySEO(seo) {
+  if (!seo) return;
+
+  // Helper: crea o actualiza un <meta> por atributo selector
+  function setMeta(attr, val, content) {
+    let el = document.querySelector(`meta[${attr}="${val}"]`);
+    if (!el) {
+      el = document.createElement('meta');
+      el.setAttribute(attr, val);
+      document.head.appendChild(el);
+    }
+    el.setAttribute('content', content);
+  }
+
+  // Helper: crea o actualiza <link rel="canonical">
+  function setCanonical(url) {
+    let el = document.querySelector('link[rel="canonical"]');
+    if (!el) {
+      el = document.createElement('link');
+      el.setAttribute('rel', 'canonical');
+      document.head.appendChild(el);
+    }
+    el.setAttribute('href', url);
+  }
+
+  // SEO general
+  if (seo.description) setMeta('name', 'description', seo.description);
+  if (seo.url)         setCanonical(seo.url);
+
+  // Open Graph (WhatsApp, Facebook, etc.)
+  setMeta('property', 'og:type',        'website');
+  if (seo.title)       setMeta('property', 'og:title',       seo.title);
+  if (seo.description) setMeta('property', 'og:description', seo.description);
+  if (seo.image)       setMeta('property', 'og:image',       seo.image);
+  if (seo.url)         setMeta('property', 'og:url',         seo.url);
+  if (seo.locale)      setMeta('property', 'og:locale',      seo.locale);
+
+  // Twitter / fallback
+  setMeta('name', 'twitter:card',        'summary');
+  if (seo.title)       setMeta('name', 'twitter:title',       seo.title);
+  if (seo.description) setMeta('name', 'twitter:description', seo.description);
+  if (seo.image)       setMeta('name', 'twitter:image',       seo.image);
+}
+
+// ════════════════════════════════════════════════════════
 //  APLICAR COLORES — sobreescribe variables CSS del :root
 // ════════════════════════════════════════════════════════
 function applyColores(c) {
@@ -196,21 +270,37 @@ async function cargarDesdeFirebase(){
     const metaSnap = await META_REF.get({ source: 'server' });
     if(metaSnap.exists){
       const m = metaSnap.data();
+
+      // ── Invalidación de caché por timestamp ──────────────────
+      // Si Firebase tiene un lastModified más nuevo que el caché local,
+      // limpiar el caché para forzar recarga fresca en inicializar()
+      const serverTs = m.lastModified || 0;
+      const localTs  = Number(localStorage.getItem('cache_ts') || '0');
+      if(serverTs > localTs){
+        try {
+          localStorage.removeItem('meta_cache');
+          localStorage.removeItem('config_cache');
+        } catch(e) {}
+      }
+      // ─────────────────────────────────────────────────────────
+
       categoriasOcultas = Array.isArray(m.categoriasOcultas) ? m.categoriasOcultas : [];
       categoriaOrden    = Array.isArray(m.categoriaOrden)    ? m.categoriaOrden    : [];
       ordenCategorias   = m.ordenCategorias || {};
       productosOcultos  = Array.isArray(m.productosOcultos)  ? m.productosOcultos  : [];
       // Categorías conocidas vienen del meta para no necesitar un query extra
       if(Array.isArray(m.categorias) && m.categorias.length){
-        // Cargar primer batch por cada categoría en paralelo
-        const batches = await Promise.all(
+        // Cargar primer batch por cada categoría
+        const batchesCat = await Promise.all(
           m.categorias.map(cat => cargarBatchCategoria(cat))
         );
-        batches.forEach((prods, i) => {
+        batchesCat.forEach(prods => {
           prods.forEach(p => {
             if(!productos.find(x => x.id === p.id)) productos.push(p);
           });
         });
+        // "Todos los productos" se construye desde los productos ya en memoria
+        // (no necesita query propio — evita duplicados y se mantiene siempre sincronizado)
         return productos;
       }
     } else {
@@ -228,7 +318,7 @@ async function cargarDesdeFirebase(){
 
 // Carga un batch de N productos para UNA categoría
 async function cargarBatchCategoria(cat, lastDoc = null){
-  const BATCH = (SITE_CONFIG.paginacionBatch || 6);
+  const BATCH = (SITE_CONFIG.paginacionBatch || 8);
   let q = PRODS_COL
     .where('tipos', 'array-contains', cat)
     .orderBy('nombre')
@@ -247,6 +337,9 @@ async function cargarBatchCategoria(cat, lastDoc = null){
 
   return prods;
 }
+
+
+
 
 // Carga el siguiente batch para una categoría y agrega al carrusel
 async function cargarMasEnCategoria(cat){
@@ -268,34 +361,159 @@ async function cargarMasEnCategoria(cat){
   const track  = document.getElementById('carrusel-track-' + catId);
   if(!track) return;
   const cardW = getCardWidth();
-  nuevos.forEach(p => {
-    if(productosOcultos.includes(p.id) && !ADMIN_MODE) return;
-    const card = crearCard(p, false);
-    card.style.flex = `0 0 ${cardW}px`;
-    track.appendChild(card);
-    carruselProds[catId].push(p);
-  });
+  // Filtrar ocultos
+  const nuevosVisibles = nuevos.filter(p => ADMIN_MODE || !productosOcultos.includes(p.id));
+  nuevosVisibles.forEach(p => carruselProds[catId].push(p));
 
-  // Actualizar botones (podrían haberse ocultado si solo había 1 pantalla)
+  if(esMobile()){
+    // En mobile hay que reconstruir el último grupo incompleto si existe,
+    // porque el batch anterior puede haber dejado un grupo con < 4 cards
+    const totalAhora = carruselProds[catId].length;
+    const totalAntes = totalAhora - nuevosVisibles.length;
+    // ¿El batch anterior terminó en un grupo incompleto?
+    const restoAnterior = totalAntes % 4;
+    // Eliminar el último grupo del track si estaba incompleto
+    if(restoAnterior !== 0 && track.lastChild){
+      track.removeChild(track.lastChild);
+    }
+    // Productos a renderizar: los que faltaban del grupo incompleto + los nuevos
+    const aRenderizar = restoAnterior !== 0
+      ? carruselProds[catId].slice(totalAntes - restoAnterior)
+      : nuevosVisibles;
+    // Agrupar de a 4
+    for(let i = 0; i < aRenderizar.length; i += 4){
+      const grupo = aRenderizar.slice(i, i + 4);
+      const grp = document.createElement('div');
+      grp.className = 'carrusel-grupo-mobile';
+      grp.style.flex = `0 0 ${cardW * 2 + 10}px`;
+      grp.style.display = 'grid';
+      grp.style.gridTemplateColumns = '1fr 1fr';
+      grp.style.gap = '8px';
+      grupo.forEach(p => {
+        const card = crearCard(p, false);
+        card.style.flex = '';
+        card.style.width = '100%';
+        grp.appendChild(card);
+      });
+      track.appendChild(grp);
+    }
+  } else {
+    nuevosVisibles.forEach(p => {
+      const card = crearCard(p, false);
+      card.style.flex = `0 0 ${cardW}px`;
+      track.appendChild(card);
+    });
+  }
+
+  // Actualizar botones de la categoría
   const visible = visiblePorPantalla();
   const total   = carruselProds[catId].length;
   const btnPrev = document.getElementById('btn-prev-' + catId);
   const btnNext = document.getElementById('btn-next-' + catId);
   if(btnPrev) btnPrev.style.display = total <= visible ? 'none' : '';
   if(btnNext) btnNext.style.display = total <= visible ? 'none' : '';
+
+  // Actualizar el track de "todos" con los nuevos productos en memoria
+  // (reconstrucción limpia — evita duplicados y sincronización manual compleja)
+  if(nuevosVisibles.length > 0){
+    const trackTodos = document.getElementById('carrusel-track-todos');
+    if(trackTodos){
+      const cats = getCategorias().filter(c => !categoriasOcultas.includes(c));
+      const idsYa = new Set();
+      const prodsTodos = [];
+      cats.forEach(c => {
+        productos.forEach(p => {
+          const lista = Array.isArray(p.tipos) ? p.tipos : [p.tipo];
+          if(lista.includes(c) && !idsYa.has(p.id)){ idsYa.add(p.id); prodsTodos.push(p); }
+        });
+      });
+      productos.forEach(p => { if(!idsYa.has(p.id)){ idsYa.add(p.id); prodsTodos.push(p); } });
+      buildTrack('todos', prodsTodos);
+    }
+  }
+}
+
+// Carga el siguiente batch para "Todos los productos".
+// Como "todos" se construye desde los productos en memoria, al paginar
+// simplemente cargamos más de las categorías que aún tienen batches pendientes.
+async function cargarMasEnTodos(){
+  const estado = paginacion['todos'];
+  if(estado && (estado.agotado || estado.cargando)) return;
+
+  // Marcar como cargando para evitar llamadas simultáneas
+  if(!paginacion['todos']) paginacion['todos'] = {};
+  paginacion['todos'].cargando = true;
+
+  const cats = getCategorias().filter(c => !categoriasOcultas.includes(c));
+
+  // Intentar cargar el siguiente batch de cualquier categoría no agotada
+  let seCargoAlgo = false;
+  for(const cat of cats){
+    const est = paginacion[cat];
+    if(!est || est.agotado || est.cargando) continue;
+
+    const nuevos = await cargarBatchCategoria(cat, est.lastDoc);
+    if(!nuevos.length) continue;
+
+    seCargoAlgo = true;
+    // Agregar a memoria global sin duplicados
+    nuevos.forEach(p => {
+      if(!productos.find(x => x.id === p.id)) productos.push(p);
+    });
+    break; // Un batch a la vez es suficiente; el usuario puede seguir scrolleando
+  }
+
+  paginacion['todos'].cargando = false;
+
+  if(!seCargoAlgo){
+    // Todas las categorías agotadas → "todos" también agotado
+    paginacion['todos'].agotado = true;
+    return;
+  }
+
+  // Reconstruir el carrusel "todos" con los productos actualizados en memoria
+  const trackTodos = document.getElementById('carrusel-track-todos');
+  if(!trackTodos) return;
+
+  // Reconstruir desde cero el track de "todos" con todos los productos en memoria
+  const idsYa = new Set();
+  const prodsTodos = [];
+  cats.forEach(cat => {
+    productos.forEach(p => {
+      const lista = Array.isArray(p.tipos) ? p.tipos : [p.tipo];
+      if(lista.includes(cat) && !idsYa.has(p.id)){
+        idsYa.add(p.id);
+        prodsTodos.push(p);
+      }
+    });
+  });
+  // Productos sin categoría visible
+  productos.forEach(p => {
+    if(!idsYa.has(p.id)){ idsYa.add(p.id); prodsTodos.push(p); }
+  });
+
+  buildTrack('todos', prodsTodos);
 }
 
 // Guarda SOLO la metadata (categorías, orden, visibilidad)
 async function guardarMetaEnFirebase(){
   // Recalcular lista de categorías conocidas para el loader paginado
   const cats = getCategorias();
+  const ts = Date.now();
   await META_REF.set({
     categoriasOcultas,
     categoriaOrden,
     ordenCategorias,
     productosOcultos,
-    categorias: cats
+    categorias: cats,
+    lastModified: ts
   });
+  try {
+    localStorage.setItem('meta_cache', JSON.stringify({
+      categoriasOcultas, categoriaOrden, ordenCategorias, productosOcultos
+    }));
+    localStorage.setItem('cache_ts', String(ts));
+  } catch(e) {}
 }
 
 // Guarda/actualiza UN producto en su propio documento
@@ -305,12 +523,20 @@ async function guardarProductoEnFirebase(prod){
     : PRODS_COL.doc();                // nuevo ID automático
   if(!prod.id) prod.id = docRef.id;   // guardar el ID en el objeto
   await docRef.set(prod);
+  // Actualizar timestamp de última modificación
+  const ts = Date.now();
+  await META_REF.set({ lastModified: ts }, { merge: true });
+  try { localStorage.setItem('cache_ts', String(ts)); } catch(e) {}
   return prod;
 }
 
 // Elimina UN producto de Firestore
 async function eliminarProductoEnFirebase(prodId){
   await PRODS_COL.doc(prodId).delete();
+  // Actualizar timestamp de última modificación
+  const ts = Date.now();
+  await META_REF.set({ lastModified: ts }, { merge: true });
+  try { localStorage.setItem('cache_ts', String(ts)); } catch(e) {}
 }
 
 // Guarda TODO (batch): útil para restaurar o migrar desde formato legacy
@@ -348,6 +574,12 @@ async function guardarEnFirebase(){
     });
 
     await batch.commit();
+    const ts = Date.now();
+    await META_REF.set({ lastModified: ts }, { merge: true });
+    try {
+      // No se cachean productos — siempre se leen frescos desde Firestore
+      localStorage.setItem('cache_ts', String(ts));
+    } catch(e) {}
     return true;
   } catch(err) {
     console.error('Error guardando en Firebase:', err);
@@ -419,6 +651,21 @@ async function inicializar(){
     document.body.classList.add('admin-mode');
     document.getElementById('admin-bar').style.display = 'flex';
   }
+
+  // Cargar metadata cacheada ANTES de buildAllCarousels — orden de categorías correcto
+  try {
+    const metaCache = localStorage.getItem('meta_cache');
+    if (metaCache) {
+      const m = JSON.parse(metaCache);
+      categoriasOcultas = Array.isArray(m.categoriasOcultas) ? m.categoriasOcultas : [];
+      categoriaOrden    = Array.isArray(m.categoriaOrden)    ? m.categoriaOrden    : [];
+      ordenCategorias   = m.ordenCategorias || {};
+      productosOcultos  = Array.isArray(m.productosOcultos)  ? m.productosOcultos  : [];
+    }
+  } catch(e) {}
+
+  // Productos: siempre desde Firestore (sin caché) para garantizar datos actualizados
+  // en cualquier dispositivo sin necesidad de borrar datos del navegador.
   try {
     productos = await cargarDesdeFirebase();
     productos.forEach((p, i) => {
@@ -426,29 +673,119 @@ async function inicializar(){
         p.id = 'prod_' + Date.now() + '_' + i + '_' + Math.random().toString(36).slice(2,8);
       }
     });
-    //if(ADMIN_MODE){
-    //  await guardarEnFirebase();
-    //}
+    // Guardar metadata en caché (no los productos) para el orden de categorías
+    try {
+      localStorage.setItem('meta_cache', JSON.stringify({
+        categoriasOcultas, categoriaOrden, ordenCategorias, productosOcultos
+      }));
+    } catch(e) {}
+
   } catch(err){
     console.warn('Primer intento fallido, reintentando...', err);
     try {
       await new Promise(r => setTimeout(r, 1200));
       productos = await cargarDesdeFirebase();
+      try {
+        localStorage.setItem('meta_cache', JSON.stringify({
+          categoriasOcultas, categoriaOrden, ordenCategorias, productosOcultos
+        }));
+      } catch(e) {}
     } catch(err2){
       console.error('Error cargando Firebase:', err2);
       productos = productosDefault.map(p => ({...p}));
     }
   }
-  document.getElementById('carrusel-loading').style.display = 'none';
+
+  const loadingEl = document.getElementById('carrusel-loading');
+  if (loadingEl) loadingEl.style.display = 'none';
   buildAllCarousels();
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
-  await cargarConfigEditable();
+  // Aplicar config desde caché inmediatamente si existe
+  try {
+    const configCache = localStorage.getItem('config_cache');
+    if (configCache) {
+      const data = JSON.parse(configCache);
+      if(data.rubro)         SITE_CONFIG.rubro         = data.rubro;
+      if(data.ubicacion)     SITE_CONFIG.ubicacion      = data.ubicacion;
+      if(data.heroSubtitulo) SITE_CONFIG.heroSubtitulo  = data.heroSubtitulo;
+      if(data.nosotros)      SITE_CONFIG.nosotros        = { ...SITE_CONFIG.nosotros, ...data.nosotros };
+      if(data.whatsapp)      SITE_CONFIG.whatsapp        = data.whatsapp;
+      if(data.instagram)     SITE_CONFIG.instagram       = data.instagram;
+      if(data.contacto)      SITE_CONFIG.contacto        = { ...SITE_CONFIG.contacto, ...data.contacto };
+      if(data.nosotrosImg)   SITE_CONFIG._nosotrosImg    = data.nosotrosImg;
+      if(data.heroLogoImg)   SITE_CONFIG._heroLogoImg    = data.heroLogoImg;
+      if(data.navLogoImg)    SITE_CONFIG._navLogoImg     = data.navLogoImg;
+    }
+  } catch(e) {}
+
   applyConfig();
-  inicializar();
   if(ADMIN_REQUEST){ pedirLoginAdmin(); }
+
+  // Hero anima INMEDIATAMENTE — no espera Firebase para nada
+  animarHero();
+
+  // Firebase carga en segundo plano, nunca bloquea la UI ni la animación
+  cargarConfigEditable().then(data => {
+    if (data) {
+      try { localStorage.setItem('config_cache', JSON.stringify(data)); } catch(e) {}
+      applyConfig();
+    }
+  }).catch(() => {});
+
+  inicializar();
 });
+
+// ════════════════════════════════════════════════════════
+//  ANIMACIÓN HERO — entrada única y armoniosa
+//  Espera a que la imagen del logo esté lista antes de
+//  arrancar, para que todo aparezca junto en cascada.
+// ════════════════════════════════════════════════════════
+function animarHero(){
+  const DELAY_BASE  = 110;
+  const DELAY_START = 80;
+
+  // Anima TODO de inmediato — sin esperar la imagen del logo
+  const heroImg = document.getElementById('hero-title-img');
+  const imgWrap = document.getElementById('hero-title-img-wrap');
+
+  // Elementos sin la imagen — animan siempre con stagger normal
+  const elementos = [
+    document.getElementById('hero-eyebrow-1'),
+    document.getElementById('hero-eyebrow-2'),
+    document.getElementById('hero-title'),
+    // imgWrap se maneja aparte ↓
+    document.getElementById('hero-subtitle'),
+    document.querySelector('.hero-cta'),
+    document.querySelector('.hero-scroll'),
+  ].filter(Boolean);
+
+  const visibles = elementos.filter(el => el.style.display !== 'none');
+  visibles.forEach((el, i) => {
+    setTimeout(() => el.classList.add('hero-visible'), DELAY_START + i * DELAY_BASE);
+  });
+
+  // imgWrap: espera a que la imagen cargue para disparar la animación junto con ella
+  if(imgWrap && imgWrap.style.display !== 'none'){
+    // Posición natural en el stagger (después del hero-title, antes del subtitle)
+    const staggerDelay = DELAY_START + 2 * DELAY_BASE;
+    const revelar = () => { imgWrap.classList.add('hero-visible'); };
+    if(heroImg && heroImg.src && heroImg.src !== window.location.href){
+      if(heroImg.complete && heroImg.naturalWidth > 0){
+        // Ya cargó (caché) — anima en su lugar normal
+        setTimeout(revelar, staggerDelay);
+      } else {
+        // Aún no cargó — espera el evento y anima entonces
+        const onLoad = () => { setTimeout(revelar, 80); };
+        heroImg.addEventListener('load',  onLoad, { once: true });
+        heroImg.addEventListener('error', onLoad, { once: true }); // fallback si falla
+      }
+    } else {
+      setTimeout(revelar, staggerDelay);
+    }
+  }
+}
 
 let resizeTimer;
 window.addEventListener('resize', () => {
@@ -485,8 +822,10 @@ function getCategorias(){
   return cats;
 }
 
+function esMobile(){ return window.innerWidth <= 768; }
+
 function visiblePorPantalla(){
-  if(window.innerWidth <= 768)  return 1;
+  if(esMobile())              return 4; // 4 cards por "página" en mobile (grilla 2x2)
   if(window.innerWidth <= 1024) return 2;
   return 3;
 }
@@ -503,6 +842,9 @@ function buildAllCarousels(){
   const cats = getCategorias();
   const visibles = cats.filter(c => !categoriasOcultas.includes(c));
   const toInit = [];
+
+  // IDs ya incluidos en "todos" para construirlo sin duplicados
+  const idsTodos = new Set();
 
   visibles.forEach((cat, idx) => {
 
@@ -528,17 +870,41 @@ function buildAllCarousels(){
     const section = crearSeccionCarrusel(cat, catId, idx > 0);
     container.appendChild(section);
 
-    // ← catNombre agregado
     toInit.push({ catId, catNombre: cat, prods: [...prods] });
+
+    // Acumular IDs para "todos"
+    prods.forEach(p => idsTodos.add(p.id));
   });
 
-  // "Todos los productos" al final
-  if(productos.length > 0){
+  // "Todos los productos" — construido desde los productos ya en memoria,
+  // sin duplicados, respetando el orden en que aparecen por categoría.
+  // Se incluyen también productos sin categoría visible (edge case).
+  const prodsTodos = [];
+  const idsYaAgregados = new Set();
+
+  // Primero los que aparecen en categorías visibles (en orden de aparición)
+  toInit.forEach(({ prods }) => {
+    prods.forEach(p => {
+      if(!idsYaAgregados.has(p.id)){
+        idsYaAgregados.add(p.id);
+        prodsTodos.push(p);
+      }
+    });
+  });
+
+  // Luego los que pudieran no estar en ninguna categoría visible (no debería ocurrir,
+  // pero los incluimos para que "todos" sea realmente TODOS)
+  productos.forEach(p => {
+    if(!idsYaAgregados.has(p.id)){
+      idsYaAgregados.add(p.id);
+      prodsTodos.push(p);
+    }
+  });
+
+  if(prodsTodos.length > 0){
     const section = crearSeccionCarrusel('Todos los productos', 'todos', visibles.length > 0);
     container.appendChild(section);
-
-    // ← catNombre: 'todos' (no pagina contra Firestore)
-    toInit.push({ catId: 'todos', catNombre: 'todos', prods: [...productos] });
+    toInit.push({ catId: 'todos', catNombre: 'todos', prods: prodsTodos });
   }
 
   // Construir tracks + eventos
@@ -549,21 +915,7 @@ function buildAllCarousels(){
     const track = document.getElementById('carrusel-track-' + catId);
     if(!track) return;
 
-    // ── Touch (mobile) ──────────────────────────────────────────
-    let startX = 0;
-    track.addEventListener('touchstart', e => {
-      startX = e.touches[0].clientX;
-    }, { passive: true });
-
-    track.addEventListener('touchend', e => {
-      const diff = startX - e.changedTouches[0].clientX;
-      if(Math.abs(diff) > 40) moverCarrusel(catId, diff > 0 ? 1 : -1);
-    });
-
     // ── Lazy load al scroll horizontal ─────────────────────────
-    // Solo para categorías reales (no "todos", que ya está en memoria)
-    if(catNombre === 'todos') return;
-
     const outer = track.closest('.carrusel-track-outer');
     if(!outer) return;
 
@@ -571,9 +923,12 @@ function buildAllCarousels(){
       const total   = carruselProds[catId]?.length || 0;
       const pos     = posCarrusel[catId] || 0;
       const visible = visiblePorPantalla();
-      // Dispara cuando quedan ≤2 cards para llegar al final
       if(total - pos - visible <= 2){
-        cargarMasEnCategoria(catNombre);
+        if(catNombre === 'todos'){
+          cargarMasEnTodos();
+        } else {
+          cargarMasEnCategoria(catNombre);
+        }
       }
     }, { passive: true });
 
@@ -628,15 +983,39 @@ function buildTrack(catId, prods){
   posCarrusel[catId]   = 0;
   track.innerHTML      = '';
 
-  prodsVisibles.forEach(p => {
-    const card = crearCard(p, false);
-    card.style.flex = `0 0 ${cardW}px`;
-    track.appendChild(card);
-  });
+  if(esMobile()){
+    // Agrupar de a 4 cards en grupos 2x2
+    const grupos = [];
+    for(let i = 0; i < prodsVisibles.length; i += 4){
+      grupos.push(prodsVisibles.slice(i, i + 4));
+    }
+    grupos.forEach(grupo => {
+      const grp = document.createElement('div');
+      grp.className = 'carrusel-grupo-mobile';
+      grp.style.flex = `0 0 ${cardW * 2 + 10}px`;
+      grp.style.display = 'grid';
+      grp.style.gridTemplateColumns = '1fr 1fr';
+      grp.style.gap = '8px';
+      grupo.forEach(p => {
+        const card = crearCard(p, false);
+        card.style.flex = '';
+        card.style.width = '100%';
+        grp.appendChild(card);
+      });
+      track.appendChild(grp);
+    });
+  } else {
+    prodsVisibles.forEach(p => {
+      const card = crearCard(p, false);
+      card.style.flex = `0 0 ${cardW}px`;
+      track.appendChild(card);
+    });
+  }
 
   const btnPrev = document.getElementById('btn-prev-' + catId);
   const btnNext = document.getElementById('btn-next-' + catId);
-  const ocultar = prodsVisibles.length <= visible;
+  const totalGrupos = esMobile() ? Math.ceil(prodsVisibles.length / 4) : prodsVisibles.length;
+  const ocultar = totalGrupos <= 1;
   if(btnPrev) btnPrev.style.display = ocultar ? 'none' : '';
   if(btnNext) btnNext.style.display = ocultar ? 'none' : '';
 }
@@ -696,11 +1075,17 @@ function crearCard(p, esClonado){
 }
 
 function getCardWidth(){
-  const gap = 20;
-  const visible = visiblePorPantalla();
-  const padding = window.innerWidth <= 768 ? 48 : 128;
+  const gap = 10;
+  if(esMobile()){
+    // 2 columnas → cada card ocupa la mitad del contenedor menos el gap central
+    const padding = 48;
+    const containerW = window.innerWidth - padding;
+    return (containerW - gap) / 2;
+  }
+  const visibleN = visiblePorPantalla();
+  const padding = 128;
   const containerW = Math.min(window.innerWidth - padding, 1100);
-  return (containerW - gap * (visible - 1)) / visible;
+  return (containerW - gap * (visibleN - 1)) / visibleN;
 }
 
 function actualizarCarrusel(catId){
@@ -708,20 +1093,58 @@ function actualizarCarrusel(catId){
   if(!track) return;
   const outer  = track.closest('.carrusel-track-outer');
   const cardW  = getCardWidth();
-  Array.from(track.children).forEach(c => c.style.flex = `0 0 ${cardW}px`);
-  if(outer) outer.scrollLeft = (posCarrusel[catId] || 0) * (cardW + 20);
+  if(esMobile()){
+    const grupoW = cardW * 2 + 10;
+    Array.from(track.children).forEach(c => { c.style.flex = `0 0 ${grupoW}px`; });
+    if(outer) outer.scrollLeft = (posCarrusel[catId] || 0) * (grupoW + 20);
+  } else {
+    Array.from(track.children).forEach(c => c.style.flex = `0 0 ${cardW}px`);
+    if(outer) outer.scrollLeft = (posCarrusel[catId] || 0) * (cardW + 20);
+  }
 }
 
 function moverCarrusel(catId, dir){
   const prods   = carruselProds[catId] || [];
   const visible = visiblePorPantalla();
-  if(prods.length <= visible) return;
+  // En mobile los items del track son grupos de 4, no cards individuales
+  const totalItems = esMobile() ? Math.ceil(prods.length / 4) : prods.length;
+  if(totalItems <= 1) return;
 
-  posCarrusel[catId] = Math.max(0, Math.min((posCarrusel[catId] || 0) + dir, prods.length - visible));
+  const maxPos = totalItems - 1;
+  posCarrusel[catId] = Math.max(0, Math.min((posCarrusel[catId] || 0) + dir, maxPos));
 
   const track = document.getElementById('carrusel-track-' + catId);
   const outer = track?.closest('.carrusel-track-outer');
-  if(outer) outer.scrollLeft = posCarrusel[catId] * (getCardWidth() + 20);
+  if(esMobile()){
+    const cardW  = getCardWidth();
+    const grupoW = cardW * 2 + 10;
+    if(outer) outer.scrollLeft = posCarrusel[catId] * (grupoW + 20);
+  } else {
+    if(outer) outer.scrollLeft = posCarrusel[catId] * (getCardWidth() + 20);
+  }
+
+  // Trigger lazy load: si estamos cerca del final del track, cargar más productos
+  // Para "todos", el catNombre es el propio catId
+  const catNombre = catId === 'todos'
+    ? 'todos'
+    : (Object.keys(carruselProds).includes(catId)
+        ? (() => {
+            const cats = getCategorias();
+            return cats.find(c => getCatId(c) === catId) || null;
+          })()
+        : null);
+  if(catNombre){
+    const totalProds  = carruselProds[catId]?.length || 0;
+    const totalGrupos = esMobile() ? Math.ceil(totalProds / 4) : totalProds;
+    const posActual   = posCarrusel[catId] || 0;
+    if(totalGrupos - posActual <= 2){
+      if(catId === 'todos'){
+        cargarMasEnTodos();
+      } else {
+        cargarMasEnCategoria(catNombre);
+      }
+    }
+  }
 }
 
 // ════════════════════════════════════════════════════════
@@ -761,6 +1184,7 @@ function openModal(p){
   const msgProducto = template.replace('{nombre}', p.nombre);
   document.getElementById('modal-wa').href = `https://wa.me/${SITE_CONFIG.whatsapp}?text=${encodeURIComponent(msgProducto)}`;
   document.getElementById('modal').classList.add('active');
+  document.getElementById('modal-add-cart').onclick = () => agregarAlCarrito(p);
   document.body.style.overflow = 'hidden';
 }
 
@@ -782,8 +1206,142 @@ function closeModal(e){
   if(e.target === document.getElementById('modal')){
     document.getElementById('modal').classList.remove('active');
     document.body.style.overflow = '';
+    resetModalZoom();
   }
 }
+
+// ════════════════════════════════════════════════════════
+//  ZOOM EN IMAGEN DEL MODAL
+//  — Desktop: rueda del mouse sobre la imagen
+//  — Mobile:  gesto pinch (dos dedos) sobre la imagen
+// ════════════════════════════════════════════════════════
+const ZOOM_MIN   = 1;
+const ZOOM_MAX   = 4;
+const ZOOM_STEP  = 0.15;
+
+let zoomState = {
+  scale:    1,
+  originX:  50,   // % dentro de la imagen
+  originY:  50,
+  // pinch
+  lastDist: null,
+};
+
+function getActiveModalImg(){
+  const container = document.getElementById('modal-img');
+  if(!container) return null;
+  // Carrusel múltiple
+  const active = container.querySelector('img.active');
+  if(active) return active;
+  // Imagen única
+  return container.querySelector('img');
+}
+
+function applyZoom(){
+  const img = getActiveModalImg();
+  if(!img) return;
+  img.style.transformOrigin = `${zoomState.originX}% ${zoomState.originY}%`;
+  img.style.transform       = `scale(${zoomState.scale})`;
+  img.style.transition      = 'transform 0.12s ease';
+  img.style.cursor          = zoomState.scale > 1 ? 'zoom-out' : 'zoom-in';
+}
+
+function resetModalZoom(){
+  zoomState.scale   = 1;
+  zoomState.originX = 50;
+  zoomState.originY = 50;
+  zoomState.lastDist = null;
+  const img = getActiveModalImg();
+  if(img){
+    img.style.transform       = 'scale(1)';
+    img.style.transformOrigin = '50% 50%';
+    img.style.cursor          = '';
+  }
+}
+
+// Calcular origen del zoom relativo a la imagen
+function calcOrigin(e, img){
+  const rect = img.getBoundingClientRect();
+  const x = ((e.clientX - rect.left) / rect.width)  * 100;
+  const y = ((e.clientY - rect.top)  / rect.height) * 100;
+  return {
+    x: Math.max(0, Math.min(100, x)),
+    y: Math.max(0, Math.min(100, y)),
+  };
+}
+
+// ── Desktop: wheel ──────────────────────────────────────
+document.addEventListener('wheel', function(e){
+  const container = document.getElementById('modal-img');
+  if(!container || !container.contains(e.target)) return;
+
+  const img = getActiveModalImg();
+  if(!img) return;
+
+  e.preventDefault();
+
+  const delta = e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP;
+  const newScale = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoomState.scale + delta));
+
+  if(newScale !== zoomState.scale){
+    const origin = calcOrigin(e, img);
+    zoomState.originX = origin.x;
+    zoomState.originY = origin.y;
+    zoomState.scale   = newScale;
+  }
+  applyZoom();
+}, { passive: false });
+
+// ── Mobile: pinch ───────────────────────────────────────
+document.addEventListener('touchstart', function(e){
+  const container = document.getElementById('modal-img');
+  if(!container || !container.contains(e.target)) return;
+  if(e.touches.length === 2){
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    zoomState.lastDist = Math.hypot(dx, dy);
+  }
+}, { passive: true });
+
+document.addEventListener('touchmove', function(e){
+  const container = document.getElementById('modal-img');
+  if(!container || !container.contains(e.target)) return;
+  if(e.touches.length !== 2 || zoomState.lastDist === null) return;
+
+  e.preventDefault();
+
+  const dx = e.touches[0].clientX - e.touches[1].clientX;
+  const dy = e.touches[0].clientY - e.touches[1].clientY;
+  const dist = Math.hypot(dx, dy);
+
+  const ratio    = dist / zoomState.lastDist;
+  const newScale = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoomState.scale * ratio));
+
+  // Origen = punto medio entre los dos dedos
+  const img = getActiveModalImg();
+  if(img){
+    const mx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+    const my = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+    const rect = img.getBoundingClientRect();
+    zoomState.originX = Math.max(0, Math.min(100, ((mx - rect.left) / rect.width)  * 100));
+    zoomState.originY = Math.max(0, Math.min(100, ((my - rect.top)  / rect.height) * 100));
+  }
+
+  zoomState.scale   = newScale;
+  zoomState.lastDist = dist;
+  applyZoom();
+}, { passive: false });
+
+document.addEventListener('touchend', function(e){
+  if(e.touches.length < 2) zoomState.lastDist = null;
+}, { passive: true });
+
+// Resetear zoom al cambiar de foto en el carrusel del modal
+const _origModalCarouselGo = window.modalCarouselGo;
+window.modalCarouselGo = function(idx){
+  resetModalZoom();
+  _origModalCarouselGo(idx);
+};
 
 document.querySelector('.modal-close').addEventListener('click', () => {
   document.getElementById('modal').classList.remove('active');
@@ -809,7 +1367,7 @@ async function eliminarProducto(p){
     mostrarToast('Producto eliminado ✓');
   } catch(err) {
     console.error('Error eliminando producto:', err);
-    mostrarToastError('⚠ Error al eliminar. Revisá la conexión.', 5000);
+    mostrarToastError('⚠ Error al eliminar. Revisá la conexión, recargar la página.', 7000);
   }
 }
 
@@ -853,7 +1411,7 @@ async function toggleVisibilidadProducto(p, card, btn){
     mostrarToast(ahoraOculto ? 'Producto ocultado ✓' : 'Producto visible ✓');
   } catch(err) {
     console.error('Error guardando visibilidad:', err);
-    mostrarToastError('⚠ Error al guardar. Revisá la conexión.', 5000);
+    mostrarToastError('⚠ Error al guardar. Revisá la conexión, recargar la página.', 7000);
   }
 }
 
@@ -936,7 +1494,7 @@ function comprimirImagen(file, callback){
   reader.onload = ev => {
     const img = new Image();
     img.onload = () => {
-      const MAX = 600;
+      const MAX = 900;
       let w = img.width, h = img.height;
       if(w > MAX){ h = Math.round(h * MAX / w); w = MAX; }
       if(h > MAX){ w = Math.round(w * MAX / h); h = MAX; }
@@ -944,6 +1502,28 @@ function comprimirImagen(file, callback){
       canvas.width = w; canvas.height = h;
       canvas.getContext('2d').drawImage(img, 0, 0, w, h);
       callback(canvas.toDataURL('image/jpeg', 0.78));
+    };
+    img.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+// Igual que comprimirImagen pero exporta PNG para preservar transparencia (ej: logo hero)
+function comprimirImagenPNG(file, callback){
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const img = new Image();
+    img.onload = () => {
+      const MAX = 600;
+      let w = img.width, h = img.height;
+      if(w > MAX){ h = Math.round(h * MAX / w); w = MAX; }
+      if(h > MAX){ w = Math.round(w * MAX / h); h = MAX; }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, w, h); // asegura fondo transparente
+      ctx.drawImage(img, 0, 0, w, h);
+      callback(canvas.toDataURL('image/png'));
     };
     img.src = ev.target.result;
   };
@@ -1009,7 +1589,6 @@ async function guardarProducto(){
 
   if(!nombre)    { alert('Por favor ingresá el nombre del producto.'); return; }
   if(!tiposSeleccionados.length){ alert('Por favor seleccioná al menos una categoría.'); return; }
-  if(!desc)      { alert('Por favor escribí una descripción.'); return; }
   if(!fotosBase64.length){ alert('Por favor subí al menos una foto del producto.'); return; }
 
   const reordenadas = [fotosBase64[portadaIdx], ...fotosBase64.filter((_,i)=>i!==portadaIdx)];
@@ -1193,7 +1772,7 @@ async function guardarReorden(){
     mostrarToast('Orden guardado ✓');
   } catch(err) {
     console.error('Error guardando orden:', err);
-    mostrarToastError('⚠ Error al guardar. Revisá la conexión.', 5000);
+    mostrarToastError('⚠ Error al guardar. Revisá la conexión, recargar la página.', 7000);
   }
 }
 
@@ -1287,7 +1866,7 @@ async function guardarCategorias(){
     mostrarToast('Categorías actualizadas ✓');
   } catch(err) {
     console.error('Error guardando categorías:', err);
-    mostrarToastError('⚠ Error al guardar. Revisá la conexión.', 5000);
+    mostrarToastError('⚠ Error al guardar. Revisá la conexión, recargar la página.', 7000);
   }
 }
 
@@ -1317,7 +1896,7 @@ async function eliminarCategoria(cat){
     if(exito) mostrarToast(`Categoría eliminada ✓`);
   } catch(err) {
     console.error('Error eliminando categoría:', err);
-    mostrarToastError('⚠ Error al eliminar. Revisá la conexión.', 5000);
+    mostrarToastError('⚠ Error al eliminar. Revisá la conexión, recargar la página.', 7000);
   }
 }
 
@@ -1330,10 +1909,41 @@ const CONFIG_REF = db.collection('catalogo').doc('siteConfig');
 
 // Imagen nosotros pendiente de guardar (base64)
 let nosotrosImgPendiente = null;
+// Imagen del logo del hero pendiente de guardar (base64)
+let heroLogoImgPendiente = null;
+let navLogoImgPendiente = null;
+
+function cargarHeroLogo(e){
+  const file = e.target.files[0];
+  if(!file) return;
+  comprimirImagenPNG(file, base64 => {
+    heroLogoImgPendiente = base64;
+    document.getElementById('ep-hero-logo-thumb').src = base64;
+    document.getElementById('ep-hero-logo-preview').style.display = 'block';
+    document.getElementById('ep-hero-logo-texto').textContent = 'Imagen cargada — clic para cambiar';
+    const actualEl = document.getElementById('ep-hero-logo-actual');
+    if(actualEl) actualEl.style.display = 'none';
+  });
+  e.target.value = '';
+}
+
+function cargarNavLogo(e){
+  const file = e.target.files[0];
+  if(!file) return;
+  comprimirImagenPNG(file, base64 => { // Usa PNG para preservar la transparencia
+    navLogoImgPendiente = base64;
+    document.getElementById('ep-nav-logo-thumb').src = base64;
+    document.getElementById('ep-nav-logo-preview').style.display = 'block';
+    document.getElementById('ep-nav-logo-texto').textContent = 'Imagen cargada — clic para cambiar';
+    const actualEl = document.getElementById('ep-nav-logo-actual');
+    if(actualEl) actualEl.style.display = 'none';
+  });
+  e.target.value = '';
+}
 
 async function cargarConfigEditable(){
   try {
-    const snap = await CONFIG_REF.get({ source: 'default' });
+    const snap = await CONFIG_REF.get({ source: 'server' });
     if(snap.exists){
       const data = snap.data();
       // Mezclar sobre SITE_CONFIG
@@ -1345,6 +1955,9 @@ async function cargarConfigEditable(){
       if(data.instagram)        SITE_CONFIG.instagram        = data.instagram;
       if(data.contacto)         SITE_CONFIG.contacto         = { ...SITE_CONFIG.contacto, ...data.contacto };
       if(data.nosotrosImg)      SITE_CONFIG._nosotrosImg     = data.nosotrosImg;
+      if(data.heroLogoImg)      SITE_CONFIG._heroLogoImg     = data.heroLogoImg;
+      if(data.navLogoImg)       SITE_CONFIG._navLogoImg      = data.navLogoImg;
+      return data;
     }
   } catch(err){
     console.warn('No se pudo cargar configEditable:', err);
@@ -1353,6 +1966,19 @@ async function cargarConfigEditable(){
 
 function abrirModalEditarPagina(){
   const C = SITE_CONFIG;
+  // ── Hero logo image ───────────────────────────────
+  heroLogoImgPendiente = null;
+  const heroLogoPreview = document.getElementById('ep-hero-logo-preview');
+  const heroLogoActual  = document.getElementById('ep-hero-logo-actual');
+  if(heroLogoPreview) heroLogoPreview.style.display = 'none';
+  if(C._heroLogoImg && heroLogoActual){
+    heroLogoActual.style.display = 'block';
+    document.getElementById('ep-hero-logo-actual-img').src = C._heroLogoImg;
+    document.getElementById('ep-hero-logo-texto').textContent = 'Clic para cambiar la imagen del título';
+  } else if(heroLogoActual){
+    heroLogoActual.style.display = 'none';
+    document.getElementById('ep-hero-logo-texto').textContent = 'Hacé clic para subir la imagen del título';
+  }
   // Rellenar campos Hero
   document.getElementById('ep-rubro').value          = C.rubro || '';
   document.getElementById('ep-ubicacion').value      = C.ubicacion || '';
@@ -1467,6 +2093,9 @@ async function guardarEditarPagina(){
   if(nosotrosImgPendiente){
     C._nosotrosImg = nosotrosImgPendiente;
   }
+  if(heroLogoImgPendiente){
+    C._heroLogoImg = heroLogoImgPendiente;
+  }
 
   // ── Aplicar en vivo a la página ────────────────────────
   applyConfig();
@@ -1479,8 +2108,13 @@ async function guardarEditarPagina(){
   document.getElementById('edit-pagina-modal').classList.remove('active');
   mostrarToast('Guardando…');
 
+  if(navLogoImgPendiente){
+    C._navLogoImg = navLogoImgPendiente;
+  }
+
   // ── Persistir en Firebase ──────────────────────────────
   try {
+    const ts = Date.now();
     await CONFIG_REF.set({
       rubro:        C.rubro,
       ubicacion:    C.ubicacion,
@@ -1489,12 +2123,17 @@ async function guardarEditarPagina(){
       whatsapp:     C.whatsapp,
       instagram:    C.instagram,
       contacto:     C.contacto,
-      nosotrosImg:  C._nosotrosImg || null
+      nosotrosImg:  C._nosotrosImg || null,
+      heroLogoImg:  C._heroLogoImg || null,
+      navLogoImg: C._navLogoImg || null
     });
+    // Invalidar caché de otros dispositivos
+    await META_REF.set({ lastModified: ts }, { merge: true });
+    try { localStorage.setItem('cache_ts', String(ts)); } catch(e) {}
     mostrarToast('Cambios guardados ✓');
   } catch(err){
     console.error('Error guardando configEditable:', err);
-    mostrarToast('⚠ Error al guardar. Revisá la conexión.');
+    mostrarToast('⚠ Error al guardar. Revisá la conexión, recargar la página.');
   }
 }
 
@@ -1527,8 +2166,8 @@ function abrirBuscador(){
   overlay.classList.add('active');
   document.body.style.overflow = 'hidden';
   document.getElementById('search-input').value = '';
-  document.getElementById('search-results').innerHTML = '';
   document.getElementById('search-empty').style.display = 'none';
+  ejecutarBusqueda('');
   setTimeout(() => document.getElementById('search-input').focus(), 80);
 }
 
@@ -1548,7 +2187,36 @@ function ejecutarBusqueda(query){
   const emptyEl   = document.getElementById('search-empty');
   const countEl   = document.getElementById('search-count');
 
-  if(!q){ resultsEl.innerHTML = ''; emptyEl.style.display='none'; countEl.textContent=''; return; }
+  if(!q){
+    // Sin texto → mostrar la primera categoría visible (normalmente "Destacados")
+    emptyEl.style.display = 'none';
+    const primeraCat = getCategorias().filter(c => !categoriasOcultas.includes(c))[0];
+    if(!primeraCat){ resultsEl.innerHTML = ''; countEl.textContent = ''; return; }
+    const destacados = productos.filter(p => {
+      const lista = Array.isArray(p.tipos) ? p.tipos : [p.tipo];
+      return lista.includes(primeraCat);
+    });
+    countEl.textContent = primeraCat; // muestra el nombre de la categoría como título
+    resultsEl.innerHTML = '';
+    destacados.forEach(p => {
+      const card = document.createElement('div');
+      card.className = 'search-card';
+      const cats = Array.isArray(p.tipos) ? p.tipos.join(' · ') : (p.tipo || '');
+      card.innerHTML = `
+        <div class="search-card-img">
+          <img src="${p.img}" alt="${p.nombre}">
+        </div>
+        <div class="search-card-info">
+          <div class="search-card-cat">${cats}</div>
+          <div class="search-card-name">${p.nombre}</div>
+          <div class="search-card-desc">${p.desc ? p.desc.substring(0,80)+'…' : ''}</div>
+        </div>
+        <button class="search-card-btn">Ver</button>`;
+      card.addEventListener('click', () => { cerrarBuscador(); openModal(p); });
+      resultsEl.appendChild(card);
+    });
+    return;
+  }
 
   const palabras = q.toLowerCase().split(/\s+/).filter(Boolean);
   const encontrados = productos.filter(p => {
@@ -1641,4 +2309,324 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
 });
+
+
+// ════════════════════════════════════════════════════════
+//  PARALLAX HERO — los círculos se mueven al hacer scroll
+//  Cada círculo tiene una velocidad distinta (factor),
+//  creando sensación de profundidad. Sutil y elegante.
+// ════════════════════════════════════════════════════════
+(function iniciarParallax(){
+  // factor: qué tan rápido se mueve cada círculo
+  // positivo = baja más lento que el scroll (flota hacia arriba)
+  // negativo = sube más rápido (se aleja)
+  const capas = [
+    { selector: '.hc1', factor: 0.18 },  // grande, movimiento suave
+    { selector: '.hc2', factor: 0.28 },  // mediano, un poco más rápido
+    { selector: '.hc3', factor: 0.12 },  // pequeño, casi inmóvil
+  ];
+
+  const elementos = capas.map(c => ({
+    el: document.querySelector(c.selector),
+    factor: c.factor
+  })).filter(c => c.el);
+
+  // ── Parallax imagen "Nosotros" ──────────────────────────
+  // La imagen se mueve más lento que el scroll → efecto de profundidad
+  const nosotrosImg = document.querySelector('.about-img-placeholder') || document.querySelector('.about-img-main');
+  const FACTOR_NOS = window.innerWidth <= 768 ? 0.05 : 0.18; // 0 = sin efecto · 1 = fija · 0.18 = sutil y elegante
+
+  let rafPending = false;
+
+  function aplicar(){
+    const scrollY = window.scrollY;
+
+    // Círculos del hero
+    elementos.forEach(({ el, factor }) => {
+      el.style.transform = `translateY(${scrollY * factor}px)`;
+    });
+
+    // Imagen de Nosotros: offset relativo al centro visible de la sección
+    if(nosotrosImg){
+      const seccion = nosotrosImg.closest('#nosotros');
+      const rect    = seccion ? seccion.getBoundingClientRect() : null;
+      const centro  = rect ? rect.top + rect.height / 2 - window.innerHeight / 2 : 0;
+      nosotrosImg.style.transform = `translateY(${centro * FACTOR_NOS}px) scale(${window.innerWidth <= 768 ? 1.02 : 1.08})`;
+    }
+
+    rafPending = false;
+  }
+
+  window.addEventListener('scroll', () => {
+    if(!rafPending){
+      rafPending = true;
+      requestAnimationFrame(aplicar);
+    }
+  }, { passive: true });
+
+  // Aplicar estado inicial sin esperar el primer scroll
+  requestAnimationFrame(aplicar);
+})();
+
+
+
+// ════════════════════════════════════════════════════════
+//  CARRITO DE COMPRAS
+// ════════════════════════════════════════════════════════
+
+function toggleCarrito() {
+  const overlay = document.getElementById('cart-overlay');
+  overlay.classList.toggle('active');
+  if (overlay.classList.contains('active')) {
+    document.body.style.overflow = 'hidden';
+    actualizarCarritoUI();
+  } else {
+    document.body.style.overflow = '';
+  }
+}
+
+function agregarAlCarrito(producto) {
+  if (!producto.precio || producto.precio.trim() === '') {
+    mostrarToastError('Este producto no tiene precio asignado.');
+    return;
+  }
+  
+  // Revisamos si el producto ya está en el carrito
+  const existente = carrito.find(p => p.id === producto.id);
+  
+  if (existente) {
+    // Si existe, solo sumamos 1 a la cantidad
+    existente.cantidad += 1;
+  } else {
+    // Si no existe, lo agregamos con cantidad inicial de 1
+    carrito.push({ ...producto, cantidad: 1 });
+  }
+
+  actualizarCarritoUI();
+  mostrarToast('Producto agregado al carrito 🛒');
+  closeModal({ target: document.getElementById('modal') }); 
+}
+
+// Nueva función para sumar/restar desde el carrito
+function cambiarCantidad(index, delta) {
+  if (carrito[index]) {
+    carrito[index].cantidad += delta;
+    // Si la cantidad llega a 0, se elimina del carrito
+    if (carrito[index].cantidad <= 0) {
+      eliminarDelCarrito(index);
+    } else {
+      actualizarCarritoUI();
+    }
+  }
+}
+
+function eliminarDelCarrito(index) {
+  carrito.splice(index, 1);
+  actualizarCarritoUI();
+}
+
+function actualizarCarritoUI() {
+  const itemsContainer = document.getElementById('cart-items');
+  const countBadge = document.getElementById('cart-count');
+  const totalEl = document.getElementById('cart-total-price');
+  
+  // Contamos el total de unidades (no solo la cantidad de productos distintos)
+  let totalUnidades = 0;
+  carrito.forEach(p => totalUnidades += p.cantidad);
+
+  // Burbuja con el contador en el menú superior
+  if (totalUnidades > 0) {
+    countBadge.style.display = 'flex';
+    countBadge.textContent = totalUnidades;
+  } else {
+    countBadge.style.display = 'none';
+  }
+
+  // Lista vacía
+  if (carrito.length === 0) {
+    itemsContainer.innerHTML = '<p class="cart-empty">Tu carrito está vacío.<br><br>¡Agregá algunos productos!</p>';
+    totalEl.textContent = '$0';
+    return;
+  }
+
+  // Renderizar items y calcular total
+  let html = '';
+  let total = 0;
+
+  carrito.forEach((p, idx) => {
+    const precioNum = Number((p.precio || '0').replace(/\D/g, ''));
+    const subtotal = precioNum * p.cantidad;
+    total += subtotal;
+    
+    html += `
+      <div class="cart-item">
+        <img src="${p.img}" class="cart-item-img">
+        <div class="cart-item-info">
+          <div class="cart-item-title">${p.nombre}</div>
+          <div class="cart-item-price">${p.precio} c/u</div>
+          <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
+            <button onclick="cambiarCantidad(${idx}, -1)" style="width:24px; height:24px; border:1px solid var(--detalles); background:transparent; cursor:pointer; border-radius:4px; display:flex; align-items:center; justify-content:center; color:var(--text); font-weight:bold; transition: background 0.2s;">-</button>
+            <span style="font-size:13px; font-weight:600; width:18px; text-align:center; color:var(--text);">${p.cantidad}</span>
+            <button onclick="cambiarCantidad(${idx}, 1)" style="width:24px; height:24px; border:1px solid var(--detalles); background:transparent; cursor:pointer; border-radius:4px; display:flex; align-items:center; justify-content:center; color:var(--text); font-weight:bold; transition: background 0.2s;">+</button>
+          </div>
+        </div>
+        <button class="cart-item-remove" onclick="eliminarDelCarrito(${idx})" title="Eliminar del carrito">✕</button>
+      </div>
+    `;
+  });
+
+  itemsContainer.innerHTML = html;
+  totalEl.textContent = '$' + total.toLocaleString('es-AR');
+}
+
+function enviarPedidoWa() {
+  if (carrito.length === 0) {
+    mostrarToastError('El carrito está vacío.');
+    return;
+  }
+
+  let lineas = [`Hola! Como estas? Me gustaria hacer el siguiente pedido:`];
+  let total = 0;
+
+  carrito.forEach((p) => {
+    const precioNum = Number((p.precio || '0').replace(/\D/g, ''));
+    total += precioNum * p.cantidad;
+    lineas.push(`• ${p.cantidad}x *${p.nombre}* - ${p.precio} c/u `);
+  });
+
+  lineas.push(`*TOTAL A ABONAR: $${total.toLocaleString('es-AR')}*`);
+
+  const mensaje = lineas.join('\n');
+  const url = `https://wa.me/${SITE_CONFIG.whatsapp}?text=${encodeURIComponent(mensaje)}`;
+  window.open(url, '_blank');
+}
+// ════════════════════════════════════════════════════════════════
+//  MENÚ HAMBURGUESA (mobile) + DROPDOWN DESKTOP (categorías)
+// ════════════════════════════════════════════════════════════════
+
+function initDropdownListeners() {
+  // El dropdown ahora es puro CSS :hover — no necesita JS para abrirse/cerrarse.
+  // Solo necesitamos poblar las categorías la primera vez que se hace hover.
+  const li = document.getElementById('nav-productos-li');
+  if (!li) return;
+  let built = false;
+  li.addEventListener('mouseenter', () => {
+    if (!built) { buildNavCategoryMenus(); built = true; }
+  });
+}
+
+function buildNavCategoryMenus() {
+  const cats = getCategorias().filter(c => !categoriasOcultas.includes(c));
+
+  // ── Desktop dropdown ──
+  const desktopEl = document.getElementById('nav-dropdown-cats');
+  if (desktopEl) {
+    desktopEl.innerHTML = '';
+    cats.forEach(cat => {
+      const a = document.createElement('a');
+      a.className = 'nav-dropdown-item';
+      a.textContent = cat;
+      a.addEventListener('click', () => irACategoria(cat));
+      desktopEl.appendChild(a);
+    });
+  }
+
+  // ── Mobile menu ──
+  const mobileEl = document.getElementById('mobile-menu-cats');
+  if (mobileEl) {
+    mobileEl.innerHTML = '';
+    // "Todos los productos" primero
+    const btnTodos = document.createElement('button');
+    btnTodos.className = 'mobile-menu-cat-item mobile-menu-cat-todos';
+    btnTodos.textContent = 'Todos los productos';
+    btnTodos.addEventListener('click', () => { closeMobileMenu(); irATodosLosProductos(); });
+    mobileEl.appendChild(btnTodos);
+    // Separador
+    const sep = document.createElement('div');
+    sep.className = 'mobile-menu-cat-sep';
+    mobileEl.appendChild(sep);
+    // Categorías individuales
+    cats.forEach(cat => {
+      const btn = document.createElement('button');
+      btn.className = 'mobile-menu-cat-item';
+      btn.textContent = cat;
+      btn.addEventListener('click', () => { closeMobileMenu(); irACategoria(cat); });
+      mobileEl.appendChild(btn);
+    });
+  }
+}
+
+function closeDesktopDropdown() {
+  // No-op: el dropdown se cierra solo con CSS :hover
+}
+
+function irACategoria(catName) {
+  const sectionId = 'section-' + getCatId(catName);
+  const section = document.getElementById(sectionId);
+  if (section) {
+    const navH = document.querySelector('nav')?.offsetHeight || 60;
+    const top = section.getBoundingClientRect().top + window.scrollY - navH - 12;
+    window.scrollTo({ top, behavior: 'smooth' });
+  } else {
+    scrollToSection('productos');
+    setTimeout(() => irACategoria(catName), 600);
+  }
+}
+
+function irATodosLosProductos() {
+  const section = document.getElementById('section-todos');
+  if (section) {
+    const navH = document.querySelector('nav')?.offsetHeight || 60;
+    const top = section.getBoundingClientRect().top + window.scrollY - navH - 12;
+    window.scrollTo({ top, behavior: 'smooth' });
+  } else {
+    scrollToSection('productos');
+  }
+}
+
+function toggleMobileMenu() {
+  const menu = document.getElementById('mobile-menu');
+  const overlay = document.getElementById('mobile-menu-overlay');
+  const btn = document.getElementById('nav-hamburger');
+  const isOpen = menu.classList.contains('active');
+  if (isOpen) {
+    closeMobileMenu();
+  } else {
+    buildNavCategoryMenus();
+    menu.classList.add('active');
+    overlay.classList.add('active');
+    btn.classList.add('active');
+    document.body.style.overflow = 'hidden';
+  }
+}
+
+function closeMobileMenu() {
+  const menu = document.getElementById('mobile-menu');
+  const overlay = document.getElementById('mobile-menu-overlay');
+  const btn = document.getElementById('nav-hamburger');
+  menu.classList.remove('active');
+  overlay.classList.remove('active');
+  btn.classList.remove('active');
+  document.body.style.overflow = '';
+}
+
+// Inicializar listeners del dropdown cuando el DOM esté listo
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initDropdownListeners);
+} else {
+  initDropdownListeners();
+}
+
+// Hook sobre buildAllCarousels para reconstruir los menús
+(function patchBuildAll() {
+  const origFn = window.buildAllCarousels;
+  if (origFn) {
+    window.buildAllCarousels = function() {
+      origFn.apply(this, arguments);
+      setTimeout(buildNavCategoryMenus, 200);
+    };
+  }
+})();
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMobileMenu(); });
 
