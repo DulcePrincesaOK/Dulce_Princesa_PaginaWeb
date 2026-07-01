@@ -58,9 +58,8 @@ let ADMIN_MODE = false;
 function applyConfig() {
   const C = SITE_CONFIG;
 
-  // Título del browser y SEO/Open Graph
-  document.title = C.seo?.title || `${C.marcaPrincipal} ${C.marcaItalica}`;
-  applySEO(C.seo);
+  // Título del browser
+  document.title = `${C.marcaPrincipal} ${C.marcaItalica}`;
 
   // Fuentes — lee tipografia de config.js, inyecta variables CSS y carga Google Fonts
   const T = C.tipografia || {};
@@ -194,54 +193,6 @@ function applyConfig() {
     `Completá los datos del Producto`;
   document.getElementById('a-nombre').placeholder =
     `Ej: ${C.tipoProductoEjemplo}`;
-}
-
-// ════════════════════════════════════════════════════════
-//  APLICAR SEO — inyecta <title>, Open Graph y meta tags
-//  usando los valores de config.js → seo {}
-// ════════════════════════════════════════════════════════
-function applySEO(seo) {
-  if (!seo) return;
-
-  // Helper: crea o actualiza un <meta> por atributo selector
-  function setMeta(attr, val, content) {
-    let el = document.querySelector(`meta[${attr}="${val}"]`);
-    if (!el) {
-      el = document.createElement('meta');
-      el.setAttribute(attr, val);
-      document.head.appendChild(el);
-    }
-    el.setAttribute('content', content);
-  }
-
-  // Helper: crea o actualiza <link rel="canonical">
-  function setCanonical(url) {
-    let el = document.querySelector('link[rel="canonical"]');
-    if (!el) {
-      el = document.createElement('link');
-      el.setAttribute('rel', 'canonical');
-      document.head.appendChild(el);
-    }
-    el.setAttribute('href', url);
-  }
-
-  // SEO general
-  if (seo.description) setMeta('name', 'description', seo.description);
-  if (seo.url)         setCanonical(seo.url);
-
-  // Open Graph (WhatsApp, Facebook, etc.)
-  setMeta('property', 'og:type',        'website');
-  if (seo.title)       setMeta('property', 'og:title',       seo.title);
-  if (seo.description) setMeta('property', 'og:description', seo.description);
-  if (seo.image)       setMeta('property', 'og:image',       seo.image);
-  if (seo.url)         setMeta('property', 'og:url',         seo.url);
-  if (seo.locale)      setMeta('property', 'og:locale',      seo.locale);
-
-  // Twitter / fallback
-  setMeta('name', 'twitter:card',        'summary');
-  if (seo.title)       setMeta('name', 'twitter:title',       seo.title);
-  if (seo.description) setMeta('name', 'twitter:description', seo.description);
-  if (seo.image)       setMeta('name', 'twitter:image',       seo.image);
 }
 
 // ════════════════════════════════════════════════════════
@@ -1022,6 +973,7 @@ function buildTrack(catId, prods){
 
 function crearCard(p, esClonado){
   const card = document.createElement('div');
+  card.dataset.prodId = p.id;          
   const estaOculto = productosOcultos.includes(p.id);
   card.className = 'producto-card' + (estaOculto ? ' producto-oculto' : '');
   card.innerHTML = `
@@ -1385,25 +1337,31 @@ async function toggleVisibilidadProducto(p, card, btn){
     productosOcultos.push(p.id);
   }
 
-  // Actualizar visual de la card sin reconstruir todo
-  const ahoraOculto = !estaOculto;
-  card.classList.toggle('producto-oculto', ahoraOculto);
-  btn.classList.toggle('is-hidden', ahoraOculto);
-  btn.title = ahoraOculto ? 'Producto oculto — clic para mostrar' : 'Ocultar producto';
-  btn.innerHTML = ahoraOculto
-    ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`
-    : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
+// Actualizar visual de la card sin reconstruir todo
+const ahoraOculto = !estaOculto;
+const svgOculto = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`;
+const svgVisible = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
 
-  // Actualizar o quitar el badge "No visible"
-  const badgeExistente = card.querySelector('.oculto-badge');
+document.querySelectorAll(`.producto-card[data-prod-id="${p.id}"]`).forEach(c => {
+  c.classList.toggle('producto-oculto', ahoraOculto);
+  const b = c.querySelector('.admin-visibility-btn');
+  if(b){
+    b.classList.toggle('is-hidden', ahoraOculto);
+    b.title = ahoraOculto ? 'Producto oculto — clic para mostrar' : 'Ocultar producto';
+    b.innerHTML = ahoraOculto ? svgOculto : svgVisible;
+  }
+  const badgeExistente = c.querySelector('.oculto-badge');
   if(ahoraOculto && !badgeExistente){
     const badge = document.createElement('div');
     badge.className = 'oculto-badge';
     badge.textContent = 'No visible';
-    card.appendChild(badge);
+    c.appendChild(badge);
   } else if(!ahoraOculto && badgeExistente){
     badgeExistente.remove();
   }
+});
+  
+
 
   mostrarToast('Guardando…');
   try {
