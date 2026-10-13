@@ -26,7 +26,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="preconnect" href="https://www.gstatic.com">
 <link rel="dns-prefetch" href="https://firestore.googleapis.com">
-<link id="gfonts" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Jost:wght@300;400;500&display=swap" rel="stylesheet">
+<link id="gfonts" href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=EB+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=Pinyon+Script:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://res.cloudinary.com">
 <!-- Firebase — defer: no bloquean el render del HTML -->
 <script defer src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
 <script defer src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
@@ -298,6 +299,7 @@
     <button class="btn-admin-reset" onclick="abrirModalReorden()">⇅ Reordenar</button>
     <button class="btn-admin-reset" onclick="abrirModalCategorias()">👁 Categorías</button>
     <button class="btn-admin-reset" onclick="abrirModalEditarPagina()">✏ Editar página</button>
+    <button class="btn-admin-reset" onclick="abrirModalHerramientas()">⚙ Herramientas</button>
     <button onclick="logoutAdmin()">Salir</button>
   </div>
 </div>
@@ -446,7 +448,7 @@
     <div class="ep-panel" id="ep-panel-hero">     
       <div class="admin-field">
         <label>Imagen del título principal (logo del hero)</label>
-        <p style="font-size:11px;color:var(--text-soft);margin:0 0 8px">Subí la imagen que reemplaza el texto del título en el hero. Se guarda en Firestore y se aplica automáticamente.</p>
+        <p style="font-size:11px;color:var(--text-soft);margin:0 0 8px">Subí la imagen que reemplaza el texto del título en el hero. Se sube a Cloudinary y se aplica automáticamente.</p>
         <label class="admin-foto-label" for="ep-hero-logo-input" style="margin-top:4px">
           <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
           <span id="ep-hero-logo-texto">Hacé clic para subir la imagen del título</span>
@@ -475,10 +477,6 @@
           <p style="font-size:11px;color:var(--text-soft);margin:0 0 4px">Imagen actual:</p>
           <img id="ep-nav-logo-actual-img" src="" alt="Logo actual" style="max-height:40px;border-radius:4px;opacity:0.7;border:1px solid var(--detalles);background:#f9f9f9;padding:4px">
         </div>
-      </div>
-      <div class="admin-field">
-        <label>Rubro (ej: Indumentaria y joyería)</label>
-        <input type="text" id="ep-rubro" placeholder="Ej: Indumentaria y joyería">
       </div>
       <div class="admin-field">
         <label>Rubro (ej: Indumentaria y joyería)</label>
@@ -602,6 +600,35 @@
   </div>
 </div>
 
+<!-- MODAL HERRAMIENTAS (admin) -->
+<div class="cat-modal-overlay" id="tools-modal" onclick="cerrarModalHerramientas(event)">
+  <div class="cat-modal">
+    <button class="admin-close" onclick="cerrarModalHerramientas()">✕</button>
+    <h2>Herramientas</h2>
+    <p class="a-subtitle">Fotos en Cloudinary y mantenimiento del catálogo</p>
+
+    <div class="admin-field">
+      <label>Cloudinary</label>
+      <p class="tools-estado" id="tools-cld-estado"></p>
+      <button type="button" class="btn-cancelar" onclick="cambiarConfigCloudinary()">Configurar cloud name / preset</button>
+    </div>
+
+    <div class="admin-field">
+      <label>Migrar fotos viejas</label>
+      <p class="tools-estado" id="tools-b64-estado"></p>
+      <button type="button" class="btn-guardar" id="tools-btn-migrar" onclick="migrarFotosACloudinary()">Migrar fotos a Cloudinary</button>
+    </div>
+
+    <div class="admin-field">
+      <label>Índice del catálogo</label>
+      <p class="tools-estado">Usalo si restauraste un respaldo con una herramienta vieja o editaste productos desde la consola de Firebase.</p>
+      <button type="button" class="btn-cancelar" onclick="reconstruirIndice()">Regenerar índice</button>
+    </div>
+
+    <p class="tools-log" id="tools-log"></p>
+  </div>
+</div>
+
 <!-- MODAL LOGIN ADMIN -->
 <div class="login-modal-overlay" id="login-modal">
   <div class="login-modal">
@@ -635,6 +662,23 @@
     <button class="login-cancel" onclick="cancelarLogin()">Cancelar</button>
   </div>
 </div>
+
+<!-- DOCK FLOTANTE MOBILE -->
+<nav class="mobile-dock" id="mobile-dock" aria-label="Accesos rápidos">
+  <button class="mobile-dock-item" onclick="abrirBuscador()" title="Buscar">
+    <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="22" y2="22"/></svg>
+  </button>
+  <button class="mobile-dock-item" onclick="toggleCarrito()" title="Carrito">
+    <svg viewBox="0 0 24 24"><circle cx="9" cy="21" r="1"></circle><circle cx="20" cy="21" r="1"></circle><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path></svg>
+    <span class="mobile-dock-badge" id="dock-cart-count">0</span>
+  </button>
+  <a class="mobile-dock-item dock-wa" id="dock-wa-link" href="#" target="_blank" title="WhatsApp">
+    <svg viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.125.555 4.12 1.527 5.849L.057 23.5l5.797-1.52A11.95 11.95 0 0 0 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818a9.792 9.792 0 0 1-5.054-1.404l-.362-.215-3.44.902.919-3.357-.236-.376A9.794 9.794 0 0 1 2.182 12C2.182 6.57 6.57 2.182 12 2.182S21.818 6.57 21.818 12 17.43 21.818 12 21.818z"/></svg>
+  </a>
+  <a class="mobile-dock-item" id="dock-ig-link" href="#" target="_blank" title="Instagram">
+    <svg viewBox="0 0 24 24" stroke-width="1.8"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
+  </a>
+</nav>
 
 </body>
 </html>

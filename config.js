@@ -46,7 +46,7 @@ const SITE_CONFIG = {
   contacto: {
   label:      "Hablemos",
   titulo:     "¿Buscás algo especial?",
-  waDisplay:  "+54 351 2553298",           
+  waDisplay:  "+54 11 3452-1808",           
   waTexto:    "Hola! Como estas? Me gustaria consultarte por tus productos!",
   waTextoProducto: "Hola! Como estas? Me gustaria consultarte por: *{nombre}*",
   ctaTitulo:  "Hacemos tu pedido a medida",
@@ -67,10 +67,10 @@ const SITE_CONFIG = {
     description: "Tortas, meriendas y postres artesanales elaborados con amor. Pedidos personalizados. Paso del Rey.",
 
     // URL canónica del sitio (sin barra final)
-    url:         "https://github.com/DulcePrincesaOK/Dulce_Princesa_PaginaWeb",
+    url:         "https://dulceprincesaok.github.io/Dulce_Princesa_PaginaWeb",
 
     // Imagen que aparece al compartir el link (idealmente 1200×630 px)
-    image:       "https://github.com/DulcePrincesaOK/Dulce_Princesa_PaginaWeb/blob/main/img/logo.png?raw=true",
+    image:       "https://dulceprincesaok.github.io/Dulce_Princesa_PaginaWeb/img/logo.png",
 
     // Idioma/locale (dejá es_AR para Argentina)
     locale:      "es_AR"
@@ -142,8 +142,26 @@ const SITE_CONFIG = {
   },
 
   // ── CATÁLOGO INICIAL / RESTAURACIÓN ────────────────────────────
-  heroLogoImgDefault: "https://github.com/DulcePrincesaOK/Dulce_Princesa_PaginaWeb/blob/main/img/LOGOHERO.png?raw=true",
+  heroLogoImgDefault: "img/LOGOHERO.png",
   navLogoImgDefault:  null,
 
   productosDefault: []
 };
+
+
+
+
+/*
+MODIFICAR ESA PARTE EN style.css para ajustar separacion en pantalla principal (modificar lo que diga margin-bottom: rem)
+
+.hero-content{position:relative;z-index:2;text-align:center;max-width:700px;padding:2rem}
+  .hero-eyebrow{font-size:11px;letter-spacing:5px;text-transform:uppercase;color:var(--principal);margin-bottom:1rem;opacity:0;transform:translateY(14px);transition:opacity .72s ease, transform .72s ease}
+   #hero-eyebrow-2{margin-bottom:2.5rem}
+  .hero-title{font-family:var(--font-titulo-pagina),serif;font-size:clamp(52px,8vw,88px);font-weight:300;line-height:1.05;color:var(--text);margin-bottom:1.2rem;opacity:0;transform:translateY(14px);transition:opacity .72s ease, transform .72s ease}
+  .hero-title em{color:var(--principal);font-style:italic}
+  .hero-title-img-wrap{background:transparent;margin-bottom:2rem;opacity:0;transform:translateY(14px);transition:opacity .72s ease, transform .72s ease}
+  .hero-title-img-wrap img{background:transparent;mix-blend-mode:multiply}
+  .hero-subtitle{font-size:15px;font-weight:300;color:var(--text-soft);letter-spacing:1px;line-height:1.8;margin-bottom:2rem;opacity:0;transform:translateY(14px);transition:opacity .72s ease, transform .72s ease}
+  .hero-cta{display:inline-flex;gap:1rem;flex-wrap:wrap;justify-content:center;opacity:0;transform:translateY(14px);transition:opacity .72s ease, transform .72s ease}
+
+*/

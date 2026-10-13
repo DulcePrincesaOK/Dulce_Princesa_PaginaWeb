@@ -232,9 +232,51 @@
   .about-img-placeholder p{font-family:var(--font-titulo-seccion),serif;font-size:18px;color:var(--principal);font-style:italic}
   .about-accent{position:absolute;bottom:-20px;right:-20px;width:80%;height:80%;border:1px solid var(--detalles);border-radius:4px;z-index:-1}
   .about-text p{font-size:15px;line-height:1.9;color:var(--text-soft);margin-bottom:1rem;font-weight:300}
-  .about-stat{display:inline-flex;flex-direction:column;align-items:center;margin-right:2rem;margin-top:1.5rem}
+
+  /* Text reveal — blur a foco, por línea */
+  .reveal-line{
+    display:block;
+    opacity:0;
+    filter:blur(6px);
+    transform:translateY(10px);
+    transition:opacity .7s ease, filter .7s ease, transform .7s ease;
+  }
+  .reveal-line.in-view{
+    opacity:1;
+    filter:blur(0);
+    transform:translateY(0);
+  }
+  .reveal-word{
+    display:inline-block;
+    opacity:0;
+    filter:blur(4px);
+    transform:translateY(6px);
+    transition:opacity .55s ease, filter .55s ease, transform .55s ease;
+  }
+  .reveal-word.in-view{
+    opacity:1;
+    filter:blur(0);
+    transform:translateY(0);
+  }
+
+  /* Bento grid para stats */
+  #nosotros-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:1.5rem}
+  .about-stat{
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    margin:0;padding:1.4rem .8rem;
+    background:var(--secciones);
+    border:1px solid var(--detalles);
+    border-radius:10px;
+    text-align:center;
+    opacity:0;
+    transform:translateY(14px) scale(.96);
+    transition:opacity .6s ease, transform .6s ease, box-shadow .25s ease, border-color .25s ease;
+  }
+  .about-stat.in-view{opacity:1;transform:translateY(0) scale(1)}
+  .about-stat:hover{box-shadow:0 8px 22px rgba(201,169,110,0.18);border-color:var(--principal)}
+  .about-stat:nth-child(1){grid-column:span 2}
   .stat-num{font-family:var(--font-titulo-seccion),serif;font-size:42px;font-weight:300;color:var(--principal)}
-  .stat-label{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--text-soft)}
+  .stat-label{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--text-soft);margin-top:.3rem}
   .about-img-placeholder img{
     width:80%;
     max-width:380px;
@@ -261,11 +303,27 @@
 .carrusel-track-outer{overflow-x:auto;border-radius:4px;scroll-snap-type:x mandatory;scrollbar-width:none;-ms-overflow-style:none;scroll-behavior:smooth;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch}
 .carrusel-track-outer::-webkit-scrollbar{display:none}
 .carrusel-track{display:flex;gap:20px}
-.producto-card{flex:0 0 calc(33.333% - 14px);scroll-snap-align:start;cursor:pointer;overflow:hidden;position:relative;aspect-ratio:3/4;border-radius:4px;transition:transform .3s}
+.producto-card{flex:0 0 calc(33.333% - 14px);scroll-snap-align:start;cursor:pointer;overflow:hidden;position:relative;aspect-ratio:3/4;border-radius:4px;transition:transform .3s;transform-style:preserve-3d;will-change:transform}
 .producto-card:hover .prod-overlay{opacity:1}
 .producto-card:hover .prod-img-placeholder{transform:scale(1.04)}
 .prod-img-placeholder{width:100%;height:100%;transition:transform .4s;overflow:hidden}
 .prod-img-placeholder img{width:100%;height:100%;object-fit:cover;display:block}
+
+/* Tilt 3D + brillo dorado que sigue el cursor */
+.card-tilt-shine{
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  opacity:0;
+  z-index:3;
+  transition:opacity .35s ease;
+  background:radial-gradient(circle 180px at var(--mx,50%) var(--my,50%), rgba(201,169,110,0.55) 0%, rgba(201,169,110,0.18) 35%, transparent 70%);
+  mix-blend-mode:overlay;
+}
+.producto-card.tilt-active .card-tilt-shine{opacity:1}
+@media (hover:none){
+  .card-tilt-shine{display:none}
+}
 .prod-overlay{position:absolute;inset:0;background:rgba(42,18,24,0.6);opacity:0;transition:opacity .3s;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;padding:2rem}
 .prod-overlay h3{font-family:var(--font-titulo-producto),serif;font-size:26px;font-weight:300;color:white;text-align:center}
 .prod-overlay .ver-mas{font-size:11px;letter-spacing:3px;text-transform:uppercase;color:var(--fondo);border:0.5px solid var(--fondo);padding:10px 24px;cursor:pointer;transition:background .2s}
@@ -273,6 +331,9 @@
 .prod-info{position:absolute;bottom:0;left:0;right:0;padding:1.5rem;background:linear-gradient(to top, rgba(42, 18, 24, 0.95) 0%,rgba(42, 18, 24, 0.75) 25%,rgba(42, 18, 24, 0.4) 55%,rgba(42, 18, 24, 0.15) 80%,rgba(42, 18, 24, 0.05) 92%, transparent 100%)}
 .prod-name{font-family:'Cormorant Garamond',serif;font-size:24px;font-weight:300;color:white}
 .prod-tipo{font-size:12px;letter-spacing:3px;text-transform:uppercase;color:var(--fondo)}
+
+/* Dock flotante mobile — oculto por defecto en desktop */
+.mobile-dock{display:none}
 
 /* Flechas */
 .carrusel-btn{position:absolute;top:50%;transform:translateY(-50%);z-index:10;width:44px;height:44px;border-radius:50%;border:1px solid var(--detalles);background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s;box-shadow:0 2px 12px rgba(0,0,0,0.08)}
@@ -341,6 +402,26 @@
     border-radius:4px;
     background:linear-gradient(to bottom, rgba(255,255,255,0.14) 0%, transparent 60%);
     pointer-events:none;
+  }
+  .whatsapp-btn::before{
+    content:'';
+    position:absolute;
+    inset:0;
+    border-radius:4px;
+    background:linear-gradient(100deg, transparent 20%, rgba(255,255,255,0.55) 42%, rgba(255,255,255,0.85) 50%, rgba(255,255,255,0.55) 58%, transparent 80%);
+    background-size:200% 100%;
+    background-position:150% 0;
+    pointer-events:none;
+    mix-blend-mode:overlay;
+    animation: wa-shimmer 4.5s ease-in-out infinite;
+  }
+  @keyframes wa-shimmer{
+    0%, 55%{ background-position:150% 0; }
+    75%{ background-position:-50% 0; }
+    100%{ background-position:-50% 0; }
+  }
+  @media (prefers-reduced-motion: reduce){
+    .whatsapp-btn::before{ animation:none; }
   }
   .whatsapp-btn:hover{
     transform: translateY(-2px);
@@ -1087,6 +1168,66 @@
     overflow: hidden !important;
   }
 
+  /* ── DOCK FLOTANTE ────────────────────────────── */
+  /* nav.mobile-dock: anula la regla general "nav{top:0;width:100%...}"
+     que estiraba el dock a toda la pantalla */
+  nav.mobile-dock{
+    display:flex;
+    gap:8px;
+    position:fixed;
+    top:auto;
+    width:auto;
+    padding:8px !important;
+    background:rgba(253,248,245,0.55);
+    border-bottom:none;
+    left:50%;
+    bottom:16px;
+    transform:translateX(-50%);
+    z-index:150;
+    backdrop-filter:blur(16px) saturate(160%);
+    -webkit-backdrop-filter:blur(16px) saturate(160%);
+    border:1px solid rgba(255,255,255,0.6);
+    border-radius:26px;
+    box-shadow:0 8px 28px rgba(58,35,40,0.18), 0 1px 0 rgba(255,255,255,0.6) inset;
+  }
+  .mobile-dock-item{
+    position:relative;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    width:46px;
+    height:46px;
+    border-radius:50%;
+    background:var(--secciones);
+    border:1px solid var(--detalles);
+    color:var(--principal);
+    text-decoration:none;
+    cursor:pointer;
+    transition:transform .22s cubic-bezier(.34,1.56,.64,1), background .2s ease, border-color .2s ease;
+    flex-shrink:0;
+  }
+  .mobile-dock-item svg{width:20px;height:20px;stroke:var(--principal);fill:none;stroke-width:1.8;transition:stroke .2s}
+  .mobile-dock-item.dock-wa svg{fill:var(--principal);stroke:none}
+  .mobile-dock-item:active,
+  .mobile-dock-item.dock-active{
+    transform:translateY(-10px) scale(1.18);
+    background:var(--principal);
+    border-color:var(--principal);
+  }
+  .mobile-dock-item:active svg,
+  .mobile-dock-item.dock-active svg{stroke:white;fill:white}
+  .mobile-dock-item.dock-wa:active svg,
+  .mobile-dock-item.dock-wa.dock-active svg{fill:white;stroke:none}
+  .mobile-dock-badge{
+    position:absolute;top:-3px;right:-3px;
+    background:var(--principal);color:white;
+    font-size:9px;font-weight:bold;
+    width:16px;height:16px;border-radius:50%;
+    display:none;align-items:center;justify-content:center;
+    border:1.5px solid white;
+  }
+  body.has-mobile-dock{ padding-bottom: 78px; }
+
   /* ── HERO ─────────────────────────────────────── */
   .hero { min-height: 100svh; padding: 0 1.2rem; }
   .hero-content { padding: 1.2rem; max-width: 100%; }
@@ -1120,8 +1261,10 @@
   }
   .about-accent { display: none; } /* El borde decorativo queda raro en 1 columna */
   .about-text p { font-size: 14px; }
-  .stat-num { font-size: 34px; text-align: center; }
-  .about-stat { margin-right: 1.5rem; align-items: center; }
+  .stat-num { font-size: 30px; text-align: center; }
+  #nosotros-stats { grid-template-columns: repeat(2,1fr); gap: 10px; }
+  .about-stat { margin: 0; align-items: center; padding: 1.1rem .6rem; }
+  .about-stat:nth-child(1) { grid-column: span 1; }
 
   /* ── PRODUCTOS ────────────────────────────────── */
   .productos-header {
@@ -1602,4 +1745,19 @@
    ════════════════════════════════════════ */
 @media (max-width: 768px) {
   .nav-hamburger { display: flex; }
+}
+
+
+/* ── v20: error de carga + modal Herramientas ── */
+.carga-error{text-align:center;padding:3rem 1rem;color:var(--text-soft)}
+.carga-error p{margin-bottom:1.2rem}
+.tools-estado{font-size:12px;color:var(--text-soft);margin:4px 0 10px;line-height:1.5}
+.tools-log{font-size:12px;color:var(--text);margin-top:1rem;min-height:1.2em;line-height:1.5}
+#tools-modal .admin-field{margin-bottom:1.4rem}
+#tools-modal button[disabled]{opacity:.5;cursor:wait}
+
+/* En mobile el dock flotante ya tiene buscar / carrito / WhatsApp / Instagram:
+   se ocultan los íconos del nav superior para que no se corten */
+@media (max-width: 768px){
+  body.has-mobile-dock .nav-social{display:none}
 }

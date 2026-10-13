@@ -7,15 +7,23 @@ const db = firebase.firestore();
 // La metadata (categorías, orden, etc.) va en un doc separado "__meta__"
 const PRODS_COL = db.collection('catalogo').doc('productos').collection('items');
 const META_REF  = db.collection('catalogo').doc('_meta');
+// Índice: UN documento con TODOS los productos (solo texto + URLs de Cloudinary).
+// Los visitantes leen solo este doc → 1 lectura en vez de 1 por producto.
+// La fuente de verdad sigue siendo PRODS_COL (compatible con el respaldo).
+const INDICE_REF = db.collection('catalogo').doc('_indice');
+// Config de Cloudinary (cloud name + preset). Solo legible por admins (ver reglas).
+const CLOUDINARY_REF = db.collection('privado').doc('cloudinary');
 const auth = firebase.auth();
 
 
 //MANTENER SESIÓN
 auth.onAuthStateChanged(user => {
   if(user && ADMIN_REQUEST){
+    const yaEraAdmin = ADMIN_MODE;
     ADMIN_MODE = true;
     document.body.classList.add('admin');
     document.getElementById('admin-bar').style.display = 'flex';
+    if(!yaEraAdmin) iniciarSincronizacionAdmin().catch(() => {});
   } else if(user && !ADMIN_REQUEST){
     // Sesión activa pero URL normal → cerrar sesión silenciosamente
     auth.signOut();
@@ -35,10 +43,12 @@ let carrito = []; // Variable global para guardar el pedido
 let posCarrusel = {};       // { catId: posicion }
 let carruselProds = {};     // { catId: [productos del carrusel] }
 
-// ── PAGINACIÓN por carrusel ────────────────────────────────────
-// catKey = nombre de categoría (o 'todos')
-const paginacion = {};
-// paginacion[catKey] = { lastDoc, agotado, cargando }
+// Se resuelve cuando termina la carga inicial del catálogo
+let resolverCargaInicial;
+const CARGA_INICIAL = new Promise(r => { resolverCargaInicial = r; });
+// En modo admin: promesa de la carga COMPLETA desde la colección (fuente de verdad).
+// Toda escritura la espera antes de guardar, para no trabajar con datos parciales.
+let ADMIN_SYNC = null;
 
 let categoriasOcultas = []; // nombres de categorías ocultas
 let categoriaOrden = [];    // orden personalizado de categorías
@@ -59,7 +69,7 @@ function applyConfig() {
   const C = SITE_CONFIG;
 
   // Título del browser
-  document.title = `${C.marcaPrincipal} ${C.marcaItalica}`;
+  document.title = (C.seo && C.seo.title) || `${C.marcaPrincipal} ${C.marcaItalica}`;
 
   // Fuentes — lee tipografia de config.js, inyecta variables CSS y carga Google Fonts
   const T = C.tipografia || {};
@@ -87,7 +97,8 @@ function applyConfig() {
     const families = uniqueFonts
       .map(f => `family=${f.replace(/ /g, '+')}:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400`)
       .join('&');
-    gfonts.href = `https://fonts.googleapis.com/css2?${families}&display=swap`;
+    const nuevaUrl = `https://fonts.googleapis.com/css2?${families}&display=swap`;
+    if(gfonts.href !== nuevaUrl) gfonts.href = nuevaUrl;
   }
 
   document.body.style.fontFamily = `'${T.cuerpo || 'Jost'}', sans-serif`;
@@ -99,7 +110,7 @@ function applyConfig() {
   const navLogoContainer = document.getElementById('nav-logo');
   const navLogoSrc = C._navLogoImg || C.navLogoImgDefault || null;
   if (navLogoSrc) {
-    navLogoContainer.innerHTML = `<img src="${navLogoSrc}" class="nav-logo-img" alt="Logo"> ${C.marcaPrincipal} <span>${C.marcaItalica}</span>`;
+    navLogoContainer.innerHTML = `<img src="${esc(cldUrl(navLogoSrc, CLD_LOGO))}" class="nav-logo-img" alt="Logo"> ${C.marcaPrincipal} <span>${C.marcaItalica}</span>`;
   } else {
     navLogoContainer.innerHTML = `${C.marcaPrincipal} <span>${C.marcaItalica}</span>`;
   }
@@ -111,6 +122,10 @@ function applyConfig() {
     `https://instagram.com/${C.instagram}`;
   document.getElementById('nav-wa-link').href =
     `https://wa.me/${C.whatsapp}?text=${encodeURIComponent(C.contacto.waTexto)}`;
+  const dockIg = document.getElementById('dock-ig-link');
+  const dockWa = document.getElementById('dock-wa-link');
+  if (dockIg) dockIg.href = `https://instagram.com/${C.instagram}`;
+  if (dockWa) dockWa.href = `https://wa.me/${C.whatsapp}?text=${encodeURIComponent(C.contacto.waTexto)}`;
 
   // ── HERO ─────────────────────────────────────────────
   document.getElementById('hero-eyebrow-1').textContent = `· ${C.rubro} ·`;
@@ -125,7 +140,8 @@ function applyConfig() {
   if(heroLogoSrc){
     heroTitleText.style.display = 'none';
     heroTitleImgWrap.style.display = 'block';
-    heroTitleImg.src = heroLogoSrc;
+    const heroSrcFinal = cldUrl(heroLogoSrc, CLD_LOGO);
+    if(heroTitleImg.getAttribute('src') !== heroSrcFinal) heroTitleImg.src = heroSrcFinal;
   } else {
     heroTitleImgWrap.style.display = 'none';
     heroTitleText.style.display = '';
@@ -133,6 +149,13 @@ function applyConfig() {
   }
 
   document.getElementById('hero-subtitle').innerHTML = C.heroSubtitulo;
+
+  // Imagen de la sección Nosotros (si se cambió desde "Editar página")
+  const nosotrosImgEl = document.querySelector('.about-img-placeholder img');
+  if(nosotrosImgEl && C._nosotrosImg){
+    const src = cldUrl(C._nosotrosImg, CLD_LOGO);
+    if(nosotrosImgEl.getAttribute('src') !== src) nosotrosImgEl.src = src;
+  }
 
   // ── NOSOTROS ─────────────────────────────────────────
   document.getElementById('nosotros-label').textContent = C.nosotros.label;
@@ -214,17 +237,22 @@ function applyColores(c) {
 // ════════════════════════════════════════════════════════
 //  FIREBASE: cargar y guardar
 // ════════════════════════════════════════════════════════
-// Carga metadata + primer batch de cada categoría conocida
+// Carga TODO el catálogo al iniciar.
+// 1) metadata (1 lectura)  2) índice con todos los productos (1 lectura)
+// Si el índice no existe (base vieja, restauración, fotos en base64 muy pesadas),
+// cae a leer la colección completa (1 lectura por producto).
 async function cargarDesdeFirebase(){
-  // 1. Metadata (1 lectura)
-  try {
-    const metaSnap = await META_REF.get({ source: 'server' });
+  const [metaRes, indiceRes] = await Promise.allSettled([
+    META_REF.get({ source: 'server' }),
+    INDICE_REF.get({ source: 'server' })
+  ]);
+
+  if(metaRes.status === 'fulfilled'){
+    const metaSnap = metaRes.value;
     if(metaSnap.exists){
       const m = metaSnap.data();
 
       // ── Invalidación de caché por timestamp ──────────────────
-      // Si Firebase tiene un lastModified más nuevo que el caché local,
-      // limpiar el caché para forzar recarga fresca en inicializar()
       const serverTs = m.lastModified || 0;
       const localTs  = Number(localStorage.getItem('cache_ts') || '0');
       if(serverTs > localTs){
@@ -233,222 +261,76 @@ async function cargarDesdeFirebase(){
           localStorage.removeItem('config_cache');
         } catch(e) {}
       }
-      // ─────────────────────────────────────────────────────────
 
       categoriasOcultas = Array.isArray(m.categoriasOcultas) ? m.categoriasOcultas : [];
       categoriaOrden    = Array.isArray(m.categoriaOrden)    ? m.categoriaOrden    : [];
       ordenCategorias   = m.ordenCategorias || {};
       productosOcultos  = Array.isArray(m.productosOcultos)  ? m.productosOcultos  : [];
-      // Categorías conocidas vienen del meta para no necesitar un query extra
-      if(Array.isArray(m.categorias) && m.categorias.length){
-        // Cargar primer batch por cada categoría
-        const batchesCat = await Promise.all(
-          m.categorias.map(cat => cargarBatchCategoria(cat))
-        );
-        batchesCat.forEach(prods => {
-          prods.forEach(p => {
-            if(!productos.find(x => x.id === p.id)) productos.push(p);
-          });
-        });
-        // "Todos los productos" se construye desde los productos ya en memoria
-        // (no necesita query propio — evita duplicados y se mantiene siempre sincronizado)
-        return productos;
-      }
-    } else {
-      await META_REF.set({ categoriasOcultas: [], categoriaOrden: [], ordenCategorias: {}, productosOcultos: [], categorias: [] });
-    }
-  } catch(err) {
-    console.warn('No se pudo cargar metadata:', err);
-  }
-
-  // Fallback: si no hay categorías en meta, carga todo (primera vez o base vieja)
-  const prodsSnap = await PRODS_COL.get({ source: 'server' });
-  if(prodsSnap.empty) return [];
-  return prodsSnap.docs.map(doc => ({ ...doc.data(), id: doc.id }));
-}
-
-// Carga un batch de N productos para UNA categoría
-async function cargarBatchCategoria(cat, lastDoc = null){
-  const BATCH = (SITE_CONFIG.paginacionBatch || 8);
-  let q = PRODS_COL
-    .where('tipos', 'array-contains', cat)
-    .orderBy('nombre')
-    .limit(BATCH);
-  if(lastDoc) q = q.startAfter(lastDoc);
-
-  const snap = await q.get({ source: 'server' });
-  const docs  = snap.docs;
-  const prods = docs.map(d => ({ ...d.data(), id: d.id }));
-
-  // Guardar cursor para siguiente batch
-  if(!paginacion[cat]) paginacion[cat] = {};
-  paginacion[cat].lastDoc  = docs.length ? docs[docs.length - 1] : paginacion[cat].lastDoc;
-  paginacion[cat].agotado  = docs.length < BATCH;
-  paginacion[cat].cargando = false;
-
-  return prods;
-}
-
-
-
-
-// Carga el siguiente batch para una categoría y agrega al carrusel
-async function cargarMasEnCategoria(cat){
-  const estado = paginacion[cat];
-  if(!estado || estado.agotado || estado.cargando) return;
-
-  estado.cargando = true;
-  const nuevos = await cargarBatchCategoria(cat, estado.lastDoc);
-
-  if(!nuevos.length){ estado.agotado = true; return; }
-
-  // Agregar a la lista global sin duplicados
-  nuevos.forEach(p => {
-    if(!productos.find(x => x.id === p.id)) productos.push(p);
-  });
-
-  // Agregar las cards nuevas directamente al track (sin reconstruir todo)
-  const catId  = getCatId(cat);
-  const track  = document.getElementById('carrusel-track-' + catId);
-  if(!track) return;
-  const cardW = getCardWidth();
-  // Filtrar ocultos
-  const nuevosVisibles = nuevos.filter(p => ADMIN_MODE || !productosOcultos.includes(p.id));
-  nuevosVisibles.forEach(p => carruselProds[catId].push(p));
-
-  if(esMobile()){
-    // En mobile hay que reconstruir el último grupo incompleto si existe,
-    // porque el batch anterior puede haber dejado un grupo con < 4 cards
-    const totalAhora = carruselProds[catId].length;
-    const totalAntes = totalAhora - nuevosVisibles.length;
-    // ¿El batch anterior terminó en un grupo incompleto?
-    const restoAnterior = totalAntes % 4;
-    // Eliminar el último grupo del track si estaba incompleto
-    if(restoAnterior !== 0 && track.lastChild){
-      track.removeChild(track.lastChild);
-    }
-    // Productos a renderizar: los que faltaban del grupo incompleto + los nuevos
-    const aRenderizar = restoAnterior !== 0
-      ? carruselProds[catId].slice(totalAntes - restoAnterior)
-      : nuevosVisibles;
-    // Agrupar de a 4
-    for(let i = 0; i < aRenderizar.length; i += 4){
-      const grupo = aRenderizar.slice(i, i + 4);
-      const grp = document.createElement('div');
-      grp.className = 'carrusel-grupo-mobile';
-      grp.style.flex = `0 0 ${cardW * 2 + 10}px`;
-      grp.style.display = 'grid';
-      grp.style.gridTemplateColumns = '1fr 1fr';
-      grp.style.gap = '8px';
-      grupo.forEach(p => {
-        const card = crearCard(p, false);
-        card.style.flex = '';
-        card.style.width = '100%';
-        grp.appendChild(card);
-      });
-      track.appendChild(grp);
     }
   } else {
-    nuevosVisibles.forEach(p => {
-      const card = crearCard(p, false);
-      card.style.flex = `0 0 ${cardW}px`;
-      track.appendChild(card);
-    });
+    console.warn('No se pudo cargar metadata:', metaRes.reason);
   }
 
-  // Actualizar botones de la categoría
-  const visible = visiblePorPantalla();
-  const total   = carruselProds[catId].length;
-  const btnPrev = document.getElementById('btn-prev-' + catId);
-  const btnNext = document.getElementById('btn-next-' + catId);
-  if(btnPrev) btnPrev.style.display = total <= visible ? 'none' : '';
-  if(btnNext) btnNext.style.display = total <= visible ? 'none' : '';
-
-  // Actualizar el track de "todos" con los nuevos productos en memoria
-  // (reconstrucción limpia — evita duplicados y sincronización manual compleja)
-  if(nuevosVisibles.length > 0){
-    const trackTodos = document.getElementById('carrusel-track-todos');
-    if(trackTodos){
-      const cats = getCategorias().filter(c => !categoriasOcultas.includes(c));
-      const idsYa = new Set();
-      const prodsTodos = [];
-      cats.forEach(c => {
-        productos.forEach(p => {
-          const lista = Array.isArray(p.tipos) ? p.tipos : [p.tipo];
-          if(lista.includes(c) && !idsYa.has(p.id)){ idsYa.add(p.id); prodsTodos.push(p); }
-        });
-      });
-      productos.forEach(p => { if(!idsYa.has(p.id)){ idsYa.add(p.id); prodsTodos.push(p); } });
-      buildTrack('todos', prodsTodos);
-    }
+  if(indiceRes.status === 'fulfilled' && indiceRes.value.exists){
+    const lista = indiceRes.value.data().productos;
+    if(Array.isArray(lista)) return lista.map(p => ({ ...p }));
   }
+
+  // Fallback: colección completa
+  return leerColeccionCompleta();
 }
 
-// Carga el siguiente batch para "Todos los productos".
-// Como "todos" se construye desde los productos en memoria, al paginar
-// simplemente cargamos más de las categorías que aún tienen batches pendientes.
-async function cargarMasEnTodos(){
-  const estado = paginacion['todos'];
-  if(estado && (estado.agotado || estado.cargando)) return;
+async function leerColeccionCompleta(){
+  const snap = await PRODS_COL.get({ source: 'server' });
+  return snap.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+}
 
-  // Marcar como cargando para evitar llamadas simultáneas
-  if(!paginacion['todos']) paginacion['todos'] = {};
-  paginacion['todos'].cargando = true;
+// Copia de un producto con solo los campos que usa la página
+function productoParaIndice(p){
+  return {
+    id:     p.id,
+    nombre: p.nombre || '',
+    precio: p.precio || '',
+    tipo:   p.tipo || (Array.isArray(p.tipos) ? p.tipos[0] : ''),
+    tipos:  Array.isArray(p.tipos) ? p.tipos : (p.tipo ? [p.tipo] : []),
+    desc:   p.desc || '',
+    img:    p.img || '',
+    imgs:   Array.isArray(p.imgs) ? p.imgs : (p.img ? [p.img] : [])
+  };
+}
 
-  const cats = getCategorias().filter(c => !categoriasOcultas.includes(c));
+// Firestore admite documentos de hasta 1 MiB. Si quedan fotos en base64
+// el índice no entra: en ese caso se borra y los visitantes leen la colección.
+const INDICE_MAX_BYTES = 900000;
 
-  // Intentar cargar el siguiente batch de cualquier categoría no agotada
-  let seCargoAlgo = false;
-  for(const cat of cats){
-    const est = paginacion[cat];
-    if(!est || est.agotado || est.cargando) continue;
+function construirIndice(ts){
+  const data = { productos: productos.map(productoParaIndice), lastModified: ts };
+  const bytes = new Blob([JSON.stringify(data)]).size;
+  return bytes <= INDICE_MAX_BYTES ? data : null;
+}
 
-    const nuevos = await cargarBatchCategoria(cat, est.lastDoc);
-    if(!nuevos.length) continue;
-
-    seCargoAlgo = true;
-    // Agregar a memoria global sin duplicados
-    nuevos.forEach(p => {
-      if(!productos.find(x => x.id === p.id)) productos.push(p);
-    });
-    break; // Un batch a la vez es suficiente; el usuario puede seguir scrolleando
-  }
-
-  paginacion['todos'].cargando = false;
-
-  if(!seCargoAlgo){
-    // Todas las categorías agotadas → "todos" también agotado
-    paginacion['todos'].agotado = true;
-    return;
-  }
-
-  // Reconstruir el carrusel "todos" con los productos actualizados en memoria
-  const trackTodos = document.getElementById('carrusel-track-todos');
-  if(!trackTodos) return;
-
-  // Reconstruir desde cero el track de "todos" con todos los productos en memoria
-  const idsYa = new Set();
-  const prodsTodos = [];
-  cats.forEach(cat => {
-    productos.forEach(p => {
-      const lista = Array.isArray(p.tipos) ? p.tipos : [p.tipo];
-      if(lista.includes(cat) && !idsYa.has(p.id)){
-        idsYa.add(p.id);
-        prodsTodos.push(p);
-      }
-    });
+// Guarda cambios de productos + índice + timestamp en UNA operación atómica.
+// ops: [{ tipo:'set'|'delete', ref, data }]
+async function commitCambios(ops = []){
+  const ts = Date.now();
+  const batch = db.batch();
+  ops.forEach(op => {
+    if(op.tipo === 'delete') batch.delete(op.ref);
+    else batch.set(op.ref, op.data);
   });
-  // Productos sin categoría visible
-  productos.forEach(p => {
-    if(!idsYa.has(p.id)){ idsYa.add(p.id); prodsTodos.push(p); }
-  });
-
-  buildTrack('todos', prodsTodos);
+  const indice = construirIndice(ts);
+  if(indice) batch.set(INDICE_REF, indice);
+  else       batch.delete(INDICE_REF);
+  batch.set(META_REF, { lastModified: ts, categorias: getCategorias() }, { merge: true });
+  await batch.commit();
+  try { localStorage.setItem('cache_ts', String(ts)); } catch(e) {}
+  if(!indice){
+    mostrarToastError('⚠ Hay fotos viejas guardadas dentro de la base (base64) y el catálogo pesa demasiado.<br>Abrí <b>⚙ Herramientas → Migrar fotos a Cloudinary</b>.', 12000);
+  }
 }
 
 // Guarda SOLO la metadata (categorías, orden, visibilidad)
 async function guardarMetaEnFirebase(){
-  // Recalcular lista de categorías conocidas para el loader paginado
   const cats = getCategorias();
   const ts = Date.now();
   await META_REF.set({
@@ -458,7 +340,7 @@ async function guardarMetaEnFirebase(){
     productosOcultos,
     categorias: cats,
     lastModified: ts
-  });
+  }, { merge: true });
   try {
     localStorage.setItem('meta_cache', JSON.stringify({
       categoriasOcultas, categoriaOrden, ordenCategorias, productosOcultos
@@ -467,76 +349,143 @@ async function guardarMetaEnFirebase(){
   } catch(e) {}
 }
 
-// Guarda/actualiza UN producto en su propio documento
+// Guarda/actualiza UN producto en su propio documento (+ índice)
 async function guardarProductoEnFirebase(prod){
-  const docRef = prod.id
-    ? PRODS_COL.doc(prod.id)
-    : PRODS_COL.doc();                // nuevo ID automático
-  if(!prod.id) prod.id = docRef.id;   // guardar el ID en el objeto
-  await docRef.set(prod);
-  // Actualizar timestamp de última modificación
-  const ts = Date.now();
-  await META_REF.set({ lastModified: ts }, { merge: true });
-  try { localStorage.setItem('cache_ts', String(ts)); } catch(e) {}
+  const docRef = prod.id ? PRODS_COL.doc(prod.id) : PRODS_COL.doc();
+  if(!prod.id) prod.id = docRef.id;
+  await commitCambios([{ tipo: 'set', ref: docRef, data: productoParaIndice(prod) }]);
   return prod;
 }
 
-// Elimina UN producto de Firestore
+// Elimina UN producto de Firestore (+ índice)
 async function eliminarProductoEnFirebase(prodId){
-  await PRODS_COL.doc(prodId).delete();
-  // Actualizar timestamp de última modificación
-  const ts = Date.now();
-  await META_REF.set({ lastModified: ts }, { merge: true });
-  try { localStorage.setItem('cache_ts', String(ts)); } catch(e) {}
+  await commitCambios([{ tipo: 'delete', ref: PRODS_COL.doc(prodId) }]);
 }
 
-// Guarda TODO (batch): útil para restaurar o migrar desde formato legacy
-async function guardarEnFirebase(){
-  try {
-    const batch = db.batch();
+// ════════════════════════════════════════════════════════
+//  ADMIN — sincronización con la fuente de verdad
+//  Al entrar como admin se lee la colección completa y se
+//  regenera el índice. Esto también repara el índice después
+//  de restaurar un respaldo o de editar algo en la consola.
+// ════════════════════════════════════════════════════════
+function iniciarSincronizacionAdmin(){
+  if(ADMIN_SYNC) return ADMIN_SYNC;
+  ADMIN_SYNC = (async () => {
+    await CARGA_INICIAL;
+    mostrarToast('Cargando catálogo completo…');
+    const lista = await leerColeccionCompleta();
+    productos = lista;
+    buildAllCarousels();
+    await commitCambios([]);
+    const conBase64 = contarFotosBase64();
+    if(conBase64 > 0){
+      mostrarToastError(`Hay ${conBase64} foto${conBase64 !== 1 ? 's' : ''} guardada${conBase64 !== 1 ? 's' : ''} en formato viejo (base64).<br>Usá <b>⚙ Herramientas → Migrar fotos a Cloudinary</b>.`, 9000);
+    } else {
+      mostrarToast('Catálogo sincronizado ✓');
+    }
+  })().catch(err => {
+    console.error('Error sincronizando catálogo admin:', err);
+    ADMIN_SYNC = null;
+    mostrarToastError('⚠ No se pudo cargar el catálogo completo. Recargá la página antes de editar.', 10000);
+    throw err;
+  });
+  return ADMIN_SYNC;
+}
 
-    // 1. Metadata
-    batch.set(META_REF, {
-      categoriasOcultas,
-      categoriaOrden,
-      ordenCategorias,
-      productosOcultos
-    });
+// Toda operación de escritura del admin pasa por acá primero
+async function esperarAdminListo(){
+  if(!ADMIN_SYNC) iniciarSincronizacionAdmin();
+  await ADMIN_SYNC;
+}
 
-    // 2. Obtener IDs actuales en Firestore para detectar eliminados
-    const existentes = await PRODS_COL.get({ source: 'server' });
-    const idsEnFirestore = new Set(existentes.docs.map(d => d.id));
-    const idsActuales    = new Set(productos.map(p => p.id).filter(Boolean));
+function esBase64(src){ return typeof src === 'string' && src.startsWith('data:'); }
 
-    // Eliminar los que ya no están en memoria
-    existentes.docs.forEach(doc => {
-      if(!idsActuales.has(doc.id)) batch.delete(doc.ref);
-    });
+function contarFotosBase64(){
+  let n = 0;
+  productos.forEach(p => {
+    const imgs = Array.isArray(p.imgs) && p.imgs.length ? p.imgs : [p.img];
+    imgs.forEach(s => { if(esBase64(s)) n++; });
+  });
+  return n;
+}
 
-    // Crear o actualizar cada producto
-    productos.forEach(p => {
-      if(!p.id){
-        const ref = PRODS_COL.doc();
-        p.id = ref.id;
-        batch.set(ref, p);
-      } else {
-        batch.set(PRODS_COL.doc(p.id), p);
-      }
-    });
+// ════════════════════════════════════════════════════════
+//  CLOUDINARY — subida de fotos desde el panel admin
+//  Usa un "upload preset" NO firmado. El cloud name y el
+//  preset se guardan en Firestore (privado/cloudinary), que
+//  solo pueden leer los admins, así no quedan en el código.
+// ════════════════════════════════════════════════════════
+let cldConfig = null;
 
-    await batch.commit();
-    const ts = Date.now();
-    await META_REF.set({ lastModified: ts }, { merge: true });
-    try {
-      // No se cachean productos — siempre se leen frescos desde Firestore
-      localStorage.setItem('cache_ts', String(ts));
-    } catch(e) {}
-    return true;
-  } catch(err) {
-    console.error('Error guardando en Firebase:', err);
-    mostrarToastError('⚠ Error al guardar. Mala conexión, límite excedido de imágenes o superposicion de pestañas.<br>Revise conexión a internet, cierre las demás pestañas y vuelva a iniciar sesión en modo administrador.', 20000);
-    return false;
+async function obtenerCloudinary(){
+  if(cldConfig) return cldConfig;
+  const snap = await CLOUDINARY_REF.get();
+  if(snap.exists && snap.data().cloudName && snap.data().preset){
+    cldConfig = snap.data();
+    return cldConfig;
   }
+  return configurarCloudinary();
+}
+
+async function configurarCloudinary(){
+  const actual = cldConfig || {};
+  const cloudName = (prompt('Cloudinary — "Cloud name" (lo ves en el Dashboard de Cloudinary):', actual.cloudName || '') || '').trim();
+  if(!cloudName) throw new Error('Cloudinary no configurado');
+  const preset = (prompt('Cloudinary — nombre del "Upload preset" (no firmado):', actual.preset || '') || '').trim();
+  if(!preset) throw new Error('Cloudinary no configurado');
+  await CLOUDINARY_REF.set({ cloudName, preset });
+  cldConfig = { cloudName, preset };
+  return cldConfig;
+}
+
+// Sube una imagen (dataURL o Blob) y devuelve su URL https
+async function subirImagenCloudinary(archivo){
+  const { cloudName, preset } = await obtenerCloudinary();
+  const fd = new FormData();
+  fd.append('file', archivo);
+  fd.append('upload_preset', preset);
+  const r = await fetch(`https://api.cloudinary.com/v1_1/${encodeURIComponent(cloudName)}/image/upload`, {
+    method: 'POST',
+    body: fd
+  });
+  const data = await r.json().catch(() => ({}));
+  if(!r.ok || !data.secure_url){
+    throw new Error('Cloudinary: ' + ((data.error && data.error.message) || ('HTTP ' + r.status)));
+  }
+  return data.secure_url;
+}
+
+// Reemplaza las fotos nuevas (dataURL) de una lista por URLs de Cloudinary
+async function subirFotosPendientes(lista, onProgreso){
+  const pendientes = lista.filter(esBase64).length;
+  let hechas = 0;
+  const resultado = [];
+  for(const src of lista){
+    if(esBase64(src)){
+      if(onProgreso) onProgreso(hechas + 1, pendientes);
+      resultado.push(await subirImagenCloudinary(src));
+      hechas++;
+    } else {
+      resultado.push(src);
+    }
+  }
+  return resultado;
+}
+
+// Agrega transformaciones de Cloudinary a una URL (tamaño + formato automático).
+// Si la imagen no es de Cloudinary (base64 viejo o img/ local) la deja igual.
+function cldUrl(src, transf){
+  if(typeof src !== 'string' || !src.includes('res.cloudinary.com') || !src.includes('/upload/')) return src;
+  return src.replace('/upload/', `/upload/${transf}/`);
+}
+const CLD_CARD  = 'f_auto,q_auto,c_limit,w_600';
+const CLD_MODAL = 'f_auto,q_auto,c_limit,w_1400';
+const CLD_THUMB = 'f_auto,q_auto,c_fill,w_160,h_160';
+const CLD_LOGO  = 'f_auto,q_auto,c_limit,w_800';
+
+// Escapa texto antes de insertarlo con innerHTML
+function esc(s){
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
 }
 
 // ════════════════════════════════════════════════════════
@@ -581,6 +530,7 @@ async function submitLogin(){
     document.body.classList.add('admin');
     document.getElementById('admin-bar').style.display = 'flex';
     buildAllCarousels(); // reconstruir cards con botones de admin
+    iniciarSincronizacionAdmin().catch(() => {});
   } catch {
     errorEl.textContent = 'Credenciales incorrectas. Intentá de nuevo.';
     btn.textContent = 'Ingresar';
@@ -644,12 +594,29 @@ async function inicializar(){
     } catch(err2){
       console.error('Error cargando Firebase:', err2);
       productos = productosDefault.map(p => ({...p}));
+      if(!productos.length){
+        mostrarErrorCarga();
+        resolverCargaInicial();
+        return;
+      }
     }
   }
 
   const loadingEl = document.getElementById('carrusel-loading');
   if (loadingEl) loadingEl.style.display = 'none';
   buildAllCarousels();
+  resolverCargaInicial();
+}
+
+// Mensaje visible si el catálogo no se pudo cargar (sin conexión, cuota, etc.)
+function mostrarErrorCarga(){
+  const container = document.getElementById('carrousels-container');
+  if(!container) return;
+  container.innerHTML = `
+    <div class="carga-error">
+      <p>No pudimos cargar los productos en este momento.</p>
+      <button class="btn-outline" onclick="location.reload()">Reintentar</button>
+    </div>`;
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -676,6 +643,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Hero anima INMEDIATAMENTE — no espera Firebase para nada
   animarHero();
+
+  // Mejoras de UI: reveal de texto en Nosotros, dock mobile
+  initNosotrosReveal();
+  initMobileDock();
+  cargarCarritoLocal();
 
   // Firebase carga en segundo plano, nunca bloquea la UI ni la animación
   cargarConfigEditable().then(data => {
@@ -739,9 +711,16 @@ function animarHero(){
 }
 
 let resizeTimer;
+let ultimoAncho = window.innerWidth;
 window.addEventListener('resize', () => {
+  // En mobile, mostrar/ocultar la barra de direcciones dispara 'resize'
+  // (cambia solo el alto). Reconstruir solo si cambió el ancho.
+  if(window.innerWidth === ultimoAncho) return;
   clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(() => buildAllCarousels(), 150);
+  resizeTimer = setTimeout(() => {
+    ultimoAncho = window.innerWidth;
+    buildAllCarousels();
+  }, 150);
 });
 
 
@@ -859,28 +838,24 @@ function buildAllCarousels(){
   }
 
   // Construir tracks + eventos
-  toInit.forEach(({ catId, catNombre, prods }) => {
+  toInit.forEach(({ catId, prods }) => {
 
     buildTrack(catId, prods);
 
     const track = document.getElementById('carrusel-track-' + catId);
     if(!track) return;
 
-    // ── Lazy load al scroll horizontal ─────────────────────────
+    // ── Sincronizar posición al deslizar con el dedo / trackpad ──
+    // Así las flechas siguen desde donde quedó el usuario.
     const outer = track.closest('.carrusel-track-outer');
     if(!outer) return;
 
+    let scrollTimer;
     outer.addEventListener('scroll', () => {
-      const total   = carruselProds[catId]?.length || 0;
-      const pos     = posCarrusel[catId] || 0;
-      const visible = visiblePorPantalla();
-      if(total - pos - visible <= 2){
-        if(catNombre === 'todos'){
-          cargarMasEnTodos();
-        } else {
-          cargarMasEnCategoria(catNombre);
-        }
-      }
+      clearTimeout(scrollTimer);
+      scrollTimer = setTimeout(() => {
+        posCarrusel[catId] = Math.round(outer.scrollLeft / pasoCarrusel());
+      }, 80);
     }, { passive: true });
 
   });
@@ -899,7 +874,7 @@ function crearSeccionCarrusel(cat, catId, showDivider){
 
   const header = document.createElement('div');
   header.className = 'cat-section-header';
-  header.innerHTML = `<span class="section-label cat-label">${cat}</span>`;
+  header.innerHTML = `<span class="section-label cat-label">${esc(cat)}</span>`;
   section.appendChild(header);
 
   const wrapper = document.createElement('div');
@@ -971,6 +946,106 @@ function buildTrack(catId, prods){
   if(btnNext) btnNext.style.display = ocultar ? 'none' : '';
 }
 
+// ════════════════════════════════════════════════════════
+//  TILT 3D + BRILLO — tarjetas de producto
+// ════════════════════════════════════════════════════════
+function aplicarTilt3D(card){
+  if (window.matchMedia && window.matchMedia('(hover: none)').matches) return;
+
+  const MAX_TILT = 8; // grados
+
+  function onMove(e){
+    const rect = card.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const px = x / rect.width;
+    const py = y / rect.height;
+
+    const rotateY = (px - 0.5) * MAX_TILT * 2;
+    const rotateX = (0.5 - py) * MAX_TILT * 2;
+
+    card.style.transform = `perspective(900px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) scale(1.015)`;
+    card.style.setProperty('--mx', `${px * 100}%`);
+    card.style.setProperty('--my', `${py * 100}%`);
+  }
+
+  function onEnter(){
+    card.classList.add('tilt-active');
+  }
+
+  function onLeave(){
+    card.classList.remove('tilt-active');
+    card.style.transform = '';
+  }
+
+  card.addEventListener('mouseenter', onEnter);
+  card.addEventListener('mousemove', onMove);
+  card.addEventListener('mouseleave', onLeave);
+}
+
+// ════════════════════════════════════════════════════════
+//  TEXT REVEAL — sección Nosotros (blur → foco)
+// ════════════════════════════════════════════════════════
+function initNosotrosReveal(){
+  const parrafosEl = document.getElementById('nosotros-parrafos');
+  const statsEl = document.getElementById('nosotros-stats');
+  if (!parrafosEl || !statsEl) return;
+
+  // Esperamos un tick a que applyConfig() haya inyectado el contenido
+  requestAnimationFrame(() => {
+    // Envolver cada párrafo en spans de línea/palabra para el reveal
+    const paras = parrafosEl.querySelectorAll('p');
+    paras.forEach((p, pi) => {
+      const words = p.innerHTML.split(/\s+/).filter(Boolean);
+      p.innerHTML = words.map((w, wi) =>
+        `<span class="reveal-word" style="transition-delay:${(pi * 60) + (wi * 18)}ms">${w}</span>`
+      ).join(' ');
+    });
+
+    const revealables = [
+      ...parrafosEl.querySelectorAll('.reveal-word'),
+      ...statsEl.querySelectorAll('.about-stat')
+    ];
+
+    if (!('IntersectionObserver' in window)) {
+      revealables.forEach(el => el.classList.add('in-view'));
+      return;
+    }
+
+    const obs = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('in-view');
+          obs.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.15, rootMargin: '0px 0px -40px 0px' });
+
+    revealables.forEach(el => obs.observe(el));
+  });
+}
+
+// ════════════════════════════════════════════════════════
+//  DOCK FLOTANTE — mobile
+// ════════════════════════════════════════════════════════
+function initMobileDock(){
+  const dock = document.getElementById('mobile-dock');
+  if (!dock) return;
+
+  document.body.classList.add('has-mobile-dock');
+
+  const items = dock.querySelectorAll('.mobile-dock-item');
+  items.forEach(item => {
+    item.addEventListener('touchstart', () => {
+      items.forEach(i => i.classList.remove('dock-active'));
+      item.classList.add('dock-active');
+    }, { passive: true });
+    item.addEventListener('touchend', () => {
+      setTimeout(() => item.classList.remove('dock-active'), 180);
+    }, { passive: true });
+  });
+}
+
 function crearCard(p, esClonado){
   const card = document.createElement('div');
   card.dataset.prodId = p.id;          
@@ -978,16 +1053,19 @@ function crearCard(p, esClonado){
   card.className = 'producto-card' + (estaOculto ? ' producto-oculto' : '');
   card.innerHTML = `
     <div class="prod-img-placeholder">
-      <img src="${p.img}" alt="${p.nombre}">
+      <img src="${esc(cldUrl(p.img, CLD_CARD))}" alt="${esc(p.nombre)}" loading="lazy" decoding="async">
     </div>
     <div class="prod-info">
-      <div class="prod-tipo">${Array.isArray(p.tipos) ? p.tipos[0] : p.tipo}</div>
-      <div class="prod-name">${p.nombre}</div>
+      <div class="prod-tipo">${esc(Array.isArray(p.tipos) ? p.tipos[0] : p.tipo)}</div>
+      <div class="prod-name">${esc(p.nombre)}</div>
     </div>
     <div class="prod-overlay">
-      <h3>${p.nombre}</h3>
+      <h3>${esc(p.nombre)}</h3>
       <div class="ver-mas">Ver más</div>
-    </div>`;
+    </div>
+    <div class="card-tilt-shine"></div>`;
+
+  aplicarTilt3D(card);
 
   if(ADMIN_MODE && !esClonado){
     const btnDel = document.createElement('button');
@@ -1067,36 +1145,13 @@ function moverCarrusel(catId, dir){
 
   const track = document.getElementById('carrusel-track-' + catId);
   const outer = track?.closest('.carrusel-track-outer');
-  if(esMobile()){
-    const cardW  = getCardWidth();
-    const grupoW = cardW * 2 + 10;
-    if(outer) outer.scrollLeft = posCarrusel[catId] * (grupoW + 20);
-  } else {
-    if(outer) outer.scrollLeft = posCarrusel[catId] * (getCardWidth() + 20);
-  }
+  if(outer) outer.scrollLeft = posCarrusel[catId] * pasoCarrusel();
+}
 
-  // Trigger lazy load: si estamos cerca del final del track, cargar más productos
-  // Para "todos", el catNombre es el propio catId
-  const catNombre = catId === 'todos'
-    ? 'todos'
-    : (Object.keys(carruselProds).includes(catId)
-        ? (() => {
-            const cats = getCategorias();
-            return cats.find(c => getCatId(c) === catId) || null;
-          })()
-        : null);
-  if(catNombre){
-    const totalProds  = carruselProds[catId]?.length || 0;
-    const totalGrupos = esMobile() ? Math.ceil(totalProds / 4) : totalProds;
-    const posActual   = posCarrusel[catId] || 0;
-    if(totalGrupos - posActual <= 2){
-      if(catId === 'todos'){
-        cargarMasEnTodos();
-      } else {
-        cargarMasEnCategoria(catNombre);
-      }
-    }
-  }
+// Distancia en px entre un item del carrusel y el siguiente
+function pasoCarrusel(){
+  const cardW = getCardWidth();
+  return esMobile() ? (cardW * 2 + 10) + 20 : cardW + 20;
 }
 
 // ════════════════════════════════════════════════════════
@@ -1112,10 +1167,10 @@ function openModal(p){
   const imgs = p.imgs && p.imgs.length > 0 ? p.imgs : [p.img];
   
   if(imgs.length <= 1){
-    imgContainer.innerHTML = `<img src="${imgs[0]}" style="width:100%;height:100%;object-fit:cover;">`;
+    imgContainer.innerHTML = `<img src="${esc(cldUrl(imgs[0], CLD_MODAL))}" style="width:100%;height:100%;object-fit:cover;">`;
   } else {
     let dotsHTML = imgs.map((_,i) => `<div class="modal-dot${i===0?' active':''}" onclick="modalCarouselGo(${i})"></div>`).join('');
-    let imgsHTML = imgs.map((src,i) => `<img src="${src}" class="${i===0?'active':''}" alt="">`).join('');
+    let imgsHTML = imgs.map((src,i) => `<img src="${esc(cldUrl(src, CLD_MODAL))}" class="${i===0?'active':''}" alt="">`).join('');
     imgContainer.innerHTML = `
       <div class="modal-img-carousel" id="modal-carousel">
         ${imgsHTML}
@@ -1309,11 +1364,13 @@ function scrollToSection(id){
 // ════════════════════════════════════════════════════════
 async function eliminarProducto(p){
   if(!confirm(`¿Eliminar "${p.nombre}" del catálogo?`)) return;
-  const idx = productos.indexOf(p);
-  if(idx > -1) productos.splice(idx, 1);
-  buildAllCarousels();
   mostrarToast('Guardando…');
   try {
+    await esperarAdminListo();
+    // Buscar por id: después de sincronizar, el objeto en memoria puede ser otro
+    productos = productos.filter(x => x.id !== p.id);
+    productosOcultos = productosOcultos.filter(id => id !== p.id);
+    buildAllCarousels();
     if(p.id) await eliminarProductoEnFirebase(p.id);
     await guardarMetaEnFirebase();
     mostrarToast('Producto eliminado ✓');
@@ -1327,6 +1384,7 @@ async function eliminarProducto(p){
 //  ADMIN — Visibilidad individual de producto
 // ════════════════════════════════════════════════════════
 async function toggleVisibilidadProducto(p, card, btn){
+  try { await esperarAdminListo(); } catch(e) { return; }
   const estaOculto = productosOcultos.includes(p.id);
 
   if(estaOculto){
@@ -1430,7 +1488,7 @@ function renderFotosGrid(){
     wrap.className = 'foto-thumb-wrap' + (i === portadaIdx ? ' is-portada' : '');
     wrap.title = 'Clic para marcar como portada';
     wrap.innerHTML = `
-      <img src="${src}" class="${i === portadaIdx ? 'portada-activa' : ''}" alt="">
+      <img src="${esc(cldUrl(src, CLD_THUMB))}" class="${i === portadaIdx ? 'portada-activa' : ''}" alt="">
       <button class="foto-thumb-remove" title="Eliminar foto">×</button>
       ${i === portadaIdx ? '<span class="portada-badge">Portada</span>' : ''}`;
     wrap.querySelector('img').addEventListener('click', () => { portadaIdx = i; renderFotosGrid(); });
@@ -1452,14 +1510,16 @@ function comprimirImagen(file, callback){
   reader.onload = ev => {
     const img = new Image();
     img.onload = () => {
-      const MAX = 900;
+      // Se sube a Cloudinary en buena calidad (sirve para el zoom del modal);
+      // la página después pide versiones chicas según dónde se muestre.
+      const MAX = 1600;
       let w = img.width, h = img.height;
       if(w > MAX){ h = Math.round(h * MAX / w); w = MAX; }
       if(h > MAX){ w = Math.round(w * MAX / h); h = MAX; }
       const canvas = document.createElement('canvas');
       canvas.width = w; canvas.height = h;
       canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-      callback(canvas.toDataURL('image/jpeg', 0.78));
+      callback(canvas.toDataURL('image/jpeg', 0.85));
     };
     img.src = ev.target.result;
   };
@@ -1472,7 +1532,7 @@ function comprimirImagenPNG(file, callback){
   reader.onload = ev => {
     const img = new Image();
     img.onload = () => {
-      const MAX = 600;
+      const MAX = 1000;
       let w = img.width, h = img.height;
       if(w > MAX){ h = Math.round(h * MAX / w); w = MAX; }
       if(h > MAX){ w = Math.round(w * MAX / h); h = MAX; }
@@ -1543,54 +1603,67 @@ async function guardarProducto(){
 
   // Nueva categoría escrita a mano
   const nuevaCatInput = document.getElementById('a-tipo-nueva').value.trim();
-  if(nuevaCatInput) tiposSeleccionados.push(nuevaCatInput);
+  if(nuevaCatInput && !tiposSeleccionados.includes(nuevaCatInput)) tiposSeleccionados.push(nuevaCatInput);
 
   if(!nombre)    { alert('Por favor ingresá el nombre del producto.'); return; }
   if(!tiposSeleccionados.length){ alert('Por favor seleccioná al menos una categoría.'); return; }
   if(!fotosBase64.length){ alert('Por favor subí al menos una foto del producto.'); return; }
 
-  const reordenadas = [fotosBase64[portadaIdx], ...fotosBase64.filter((_,i)=>i!==portadaIdx)];
-  const imgPortada = reordenadas[0];
+  const btnGuardar = document.querySelector('#admin-modal .btn-guardar');
+  if(btnGuardar){ btnGuardar.disabled = true; btnGuardar.textContent = 'Guardando…'; }
 
-  if(productoEditando){
-    productoEditando.nombre = nombre;
-    productoEditando.tipos  = tiposSeleccionados;
-    productoEditando.tipo   = tiposSeleccionados[0]; // compatibilidad legacy
-    productoEditando.desc   = desc;
-    productoEditando.precio = precio;
-    productoEditando.img    = imgPortada;
-    productoEditando.imgs   = reordenadas;
-  } else {
-    productos.push({
+  try {
+    await esperarAdminListo();
+
+    // 1) Subir a Cloudinary las fotos nuevas ANTES de tocar el catálogo.
+    //    Si falla, no se modifica nada y las fotos quedan en el formulario.
+    const ordenadas = [fotosBase64[portadaIdx], ...fotosBase64.filter((_,i)=>i!==portadaIdx)];
+    const urls = await subirFotosPendientes(ordenadas, (n, total) => {
+      mostrarToast(`Subiendo foto ${n} de ${total}…`);
+    });
+
+    // 2) Actualizar en memoria
+    let prodTarget;
+    const editando = productoEditando && productos.find(x => x.id === productoEditando.id);
+    if(editando){
+      prodTarget = editando;
+    } else {
+      prodTarget = {};
+      productos.push(prodTarget);
+    }
+    Object.assign(prodTarget, {
       nombre,
       precio,
-      tipo: tiposSeleccionados[0],
+      tipo: tiposSeleccionados[0], // compatibilidad legacy
       tipos: tiposSeleccionados,
       desc,
-      img: imgPortada,
-      imgs: reordenadas
+      img: urls[0],
+      imgs: urls
     });
-  }
 
-  buildAllCarousels();
-  document.getElementById('admin-modal').classList.remove('active');
-  mostrarToast('Guardando…');
-  try {
-    // Guardar solo el producto que cambió (no toda la lista)
-    const prodTarget = productoEditando || productos[productos.length - 1];
+    // 3) Guardar producto + índice + metadata
+    mostrarToast('Guardando…');
     await guardarProductoEnFirebase(prodTarget);
     await guardarMetaEnFirebase();
+
+    buildAllCarousels();
+    document.getElementById('admin-modal').classList.remove('active');
+    productoEditando = null;
+    fotosBase64 = [];
+    portadaIdx = 0;
+    renderFotosGrid();
+    document.querySelector('.admin-modal h2').textContent = 'Nuevo producto';
     mostrarToast('Producto guardado ✓');
     setTimeout(() => scrollToSection('productos'), 300);
   } catch(err) {
     console.error('Error guardando producto:', err);
-    mostrarToastError('⚠ Error al guardar. Mala conexión, límite excedido de imágenes o superposicion de pestañas.<br>Revise conexión a internet, cierre las demás pestañas y vuelva a iniciar sesión en modo administrador.', 20000);
+    const esCld = String(err && err.message).startsWith('Cloudinary');
+    mostrarToastError(esCld
+      ? '⚠ No se pudieron subir las fotos (' + esc(err.message) + ').<br>Revisá la conexión o la configuración en ⚙ Herramientas.'
+      : '⚠ Error al guardar. Revisá la conexión a internet y volvé a intentar.', 12000);
+  } finally {
+    if(btnGuardar){ btnGuardar.disabled = false; btnGuardar.textContent = 'Guardar producto'; }
   }
-  productoEditando = null;
-  fotosBase64 = [];
-  portadaIdx = 0;
-  renderFotosGrid();
-  document.querySelector('.admin-modal h2').textContent = 'Nuevo producto';
 }
 
 function abrirModalEditar(p){
@@ -1608,21 +1681,6 @@ function abrirModalEditar(p){
   document.getElementById('admin-modal').classList.add('active');
 }
 
-// ════════════════════════════════════════════════════════
-//  ADMIN — Restaurar originales
-// ════════════════════════════════════════════════════════
-async function resetearProductos(){
-  if(!confirm('¿Restaurar el catálogo original? Se perderán todos los cambios.')) return;
-  productos = productosDefault.map(p => ({...p}));
-  categoriasOcultas = [];
-  productosOcultos = [];
-  buildAllCarousels();
-  mostrarToast('Guardando…');
-  const exito = await guardarEnFirebase();
-  if(exito) {
-    mostrarToast('Catálogo restaurado ✓');
-  }
-}
 
 // ════════════════════════════════════════════════════════
 //  ADMIN — Reordenar por categoría
@@ -1680,10 +1738,10 @@ function renderizarListaReorden(){
     li.innerHTML = `
       <span class="reorder-handle">⠿</span>
       <span class="reorder-num">${i + 1}</span>
-      <img class="reorder-thumb" src="${p.img}" alt="${p.nombre}">
+      <img class="reorder-thumb" src="${esc(cldUrl(p.img, CLD_THUMB))}" alt="${esc(p.nombre)}" loading="lazy">
       <div class="reorder-info">
-        <div class="reorder-name">${p.nombre}</div>
-        <div class="reorder-tipo">${Array.isArray(p.tipos) ? p.tipos.join(', ') : p.tipo}</div>
+        <div class="reorder-name">${esc(p.nombre)}</div>
+        <div class="reorder-tipo">${esc(Array.isArray(p.tipos) ? p.tipos.join(', ') : p.tipo)}</div>
       </div>`;
 
     li.addEventListener('dragstart', e => {
@@ -1715,6 +1773,7 @@ function renderizarListaReorden(){
 }
 
 async function guardarReorden(){
+  try { await esperarAdminListo(); } catch(e) { return; }
 
   ordenCategorias[reorderCatActual] =
     ordenTemporal.map(p => p.id);
@@ -1768,17 +1827,19 @@ function renderCatToggles(){
       <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">
         <span class="cat-drag-handle" title="Arrastrá para reordenar">⠿</span>
         <div>
-          <div class="cat-toggle-name">${cat}</div>
+          <div class="cat-toggle-name">${esc(cat)}</div>
           <div class="cat-toggle-count">${count} producto${count !== 1 ? 's' : ''}</div>
         </div>
       </div>
       <div class="cat-toggle-actions">
-        <button class="btn-cat-delete" title="Eliminar categoría y sus productos" onclick="eliminarCategoria('${cat.replace(/'/g,"\\'")}')">×</button>
+        <button class="btn-cat-delete" title="Eliminar categoría y sus productos">×</button>
         <label class="toggle-switch">
-          <input type="checkbox" data-cat="${cat}" ${visible ? 'checked' : ''}>
+          <input type="checkbox" data-cat="${esc(cat)}" ${visible ? 'checked' : ''}>
           <span class="toggle-slider"></span>
         </label>
       </div>`;
+
+    item.querySelector('.btn-cat-delete').addEventListener('click', () => eliminarCategoria(cat));
 
     item.addEventListener('dragstart', e => {
       catDragSrc = idx;
@@ -1811,6 +1872,7 @@ function renderCatToggles(){
 }
 
 async function guardarCategorias(){
+  try { await esperarAdminListo(); } catch(e) { return; }
   const checkboxes = document.querySelectorAll('#cat-toggle-list input[type=checkbox]');
   categoriasOcultas = [];
   checkboxes.forEach(cb => {
@@ -1829,29 +1891,49 @@ async function guardarCategorias(){
 }
 
 async function eliminarCategoria(cat){
-  const count = productos.filter(p => p.tipo === cat).length;
-  const msg = count > 0
-    ? `¿Eliminar la categoría "${cat}" y sus ${count} producto${count !== 1 ? 's' : ''}? Esta acción no se puede deshacer.`
+  try { await esperarAdminListo(); } catch(e) { return; }
+  const enCat = productos.filter(p => {
+    const lista = Array.isArray(p.tipos) ? p.tipos : [p.tipo];
+    return lista.includes(cat);
+  });
+  // Solo se borran los productos que pertenecen ÚNICAMENTE a esta categoría.
+  // Los que tienen otras categorías se conservan, sin esta.
+  const aBorrar     = enCat.filter(p => (Array.isArray(p.tipos) ? p.tipos : [p.tipo]).length <= 1);
+  const aActualizar = enCat.filter(p => !aBorrar.includes(p));
+
+  const msg = aBorrar.length > 0
+    ? `¿Eliminar la categoría "${cat}" y sus ${aBorrar.length} producto${aBorrar.length !== 1 ? 's' : ''}? Esta acción no se puede deshacer.`
     : `¿Eliminar la categoría "${cat}"?`;
   if(!confirm(msg)) return;
-  productos = productos.filter(p => {
-    const lista = Array.isArray(p.tipos) ? p.tipos : [p.tipo];
-    return !lista.includes(cat) || lista.length > 1;
-  }).map(p => {
-    if(Array.isArray(p.tipos) && p.tipos.includes(cat)){
-      const nuevos = p.tipos.filter(c => c !== cat);
-      return { ...p, tipos: nuevos, tipo: nuevos[0] };
-    }
-    return p;
+
+  const idsBorrar = new Set(aBorrar.map(p => p.id));
+  productos = productos.filter(p => !idsBorrar.has(p.id));
+  aActualizar.forEach(p => {
+    p.tipos = p.tipos.filter(c => c !== cat);
+    p.tipo  = p.tipos[0];
   });
   categoriasOcultas = categoriasOcultas.filter(c => c !== cat);
+  categoriaOrden    = categoriaOrden.filter(c => c !== cat);
+  delete ordenCategorias[cat];
+  productosOcultos  = productosOcultos.filter(id => !idsBorrar.has(id));
+
   renderCatToggles();
   buildAllCarousels();
   mostrarToast('Guardando…');
   try {
-    // Usa batch completo porque hay productos eliminados
-    const exito = await guardarEnFirebase();
-    if(exito) mostrarToast(`Categoría eliminada ✓`);
+    // Solo se tocan los productos afectados (nunca se borra lo que no está en la categoría)
+    const ops = [
+      ...aBorrar.map(p => ({ tipo: 'delete', ref: PRODS_COL.doc(p.id) })),
+      ...aActualizar.map(p => ({ tipo: 'set', ref: PRODS_COL.doc(p.id), data: productoParaIndice(p) }))
+    ];
+    // Firestore admite hasta 500 operaciones por lote
+    let i = 0;
+    do {
+      await commitCambios(ops.slice(i, i + 400));
+      i += 400;
+    } while(i < ops.length);
+    await guardarMetaEnFirebase();
+    mostrarToast('Categoría eliminada ✓');
   } catch(err) {
     console.error('Error eliminando categoría:', err);
     mostrarToastError('⚠ Error al eliminar. Revisá la conexión, recargar la página.', 7000);
@@ -1926,12 +2008,20 @@ function abrirModalEditarPagina(){
   const C = SITE_CONFIG;
   // ── Hero logo image ───────────────────────────────
   heroLogoImgPendiente = null;
+  navLogoImgPendiente = null;
+  const navLogoPreview = document.getElementById('ep-nav-logo-preview');
+  const navLogoActual  = document.getElementById('ep-nav-logo-actual');
+  if(navLogoPreview) navLogoPreview.style.display = 'none';
+  if(navLogoActual){
+    navLogoActual.style.display = C._navLogoImg ? 'block' : 'none';
+    if(C._navLogoImg) document.getElementById('ep-nav-logo-actual-img').src = cldUrl(C._navLogoImg, CLD_LOGO);
+  }
   const heroLogoPreview = document.getElementById('ep-hero-logo-preview');
   const heroLogoActual  = document.getElementById('ep-hero-logo-actual');
   if(heroLogoPreview) heroLogoPreview.style.display = 'none';
   if(C._heroLogoImg && heroLogoActual){
     heroLogoActual.style.display = 'block';
-    document.getElementById('ep-hero-logo-actual-img').src = C._heroLogoImg;
+    document.getElementById('ep-hero-logo-actual-img').src = cldUrl(C._heroLogoImg, CLD_LOGO);
     document.getElementById('ep-hero-logo-texto').textContent = 'Clic para cambiar la imagen del título';
   } else if(heroLogoActual){
     heroLogoActual.style.display = 'none';
@@ -1941,14 +2031,14 @@ function abrirModalEditarPagina(){
   document.getElementById('ep-rubro').value          = C.rubro || '';
   document.getElementById('ep-ubicacion').value      = C.ubicacion || '';
   // Convertir <br> en salto para textarea
-  document.getElementById('ep-hero-subtitulo').value = (C.heroSubtitulo || '').replace(/<br\s*\/?>/gi, '\n');
+  document.getElementById('ep-hero-subtitulo').value = desEscapar((C.heroSubtitulo || '').replace(/<br\s*\/?>/gi, '\n'));
 
   // Imagen nosotros
   nosotrosImgPendiente = null;
   const preview = document.getElementById('ep-nosotros-img-preview');
   const thumb   = document.getElementById('ep-nosotros-img-thumb');
   if(C._nosotrosImg){
-    thumb.src = C._nosotrosImg;
+    thumb.src = cldUrl(C._nosotrosImg, CLD_LOGO);
     preview.style.display = 'block';
     document.getElementById('ep-nosotros-img-texto').textContent = 'Imagen cargada — clic para cambiar';
   } else {
@@ -1961,9 +2051,9 @@ function abrirModalEditarPagina(){
   document.getElementById('ep-nos-titulo').value   = C.nosotros.titulo || '';
   const ps = C.nosotros.parrafos || ['','',''];
   // Strip tags for editing
-  document.getElementById('ep-nos-p1').value = (ps[0]||'').replace(/<[^>]+>/g,'');
-  document.getElementById('ep-nos-p2').value = (ps[1]||'').replace(/<[^>]+>/g,'');
-  document.getElementById('ep-nos-p3').value = (ps[2]||'').replace(/<[^>]+>/g,'');
+  document.getElementById('ep-nos-p1').value = desEscapar((ps[0]||'').replace(/<[^>]+>/g,''));
+  document.getElementById('ep-nos-p2').value = desEscapar((ps[1]||'').replace(/<[^>]+>/g,''));
+  document.getElementById('ep-nos-p3').value = desEscapar((ps[2]||'').replace(/<[^>]+>/g,''));
   
 
   document.getElementById('edit-nosotros-slogan').value = C.nosotros.slogan || '';
@@ -1992,6 +2082,13 @@ function abrirModalEditarPagina(){
   document.getElementById('edit-pagina-modal').classList.add('active');
 }
 
+// Convierte &amp; &lt; etc. de vuelta a texto para editarlo
+function desEscapar(html){
+  const t = document.createElement('textarea');
+  t.innerHTML = html;
+  return t.value;
+}
+
 function cerrarModalEditarPagina(e){
   if(e.target.id !== 'edit-pagina-modal') return;
   document.getElementById('edit-pagina-modal').classList.remove('active');
@@ -2017,12 +2114,35 @@ function cargarImagenNosotros(e){
 
 async function guardarEditarPagina(){
   const C = SITE_CONFIG;
+  const btnGuardar = document.querySelector('#edit-pagina-modal .btn-guardar');
+  if(btnGuardar){ btnGuardar.disabled = true; btnGuardar.textContent = 'Guardando…'; }
 
-  // ── Leer valores ──────────────────────────────────────
+  // ── 1) Subir imágenes nuevas a Cloudinary (si hay) ─────
+  let nosotrosUrl = null, heroUrl = null, navUrl = null;
+  try {
+    const pendientes = [nosotrosImgPendiente, heroLogoImgPendiente, navLogoImgPendiente].filter(Boolean).length;
+    let n = 0;
+    const subir = async (img) => {
+      if(!img) return null;
+      n++;
+      mostrarToast(`Subiendo imagen ${n} de ${pendientes}…`);
+      return subirImagenCloudinary(img);
+    };
+    nosotrosUrl = await subir(nosotrosImgPendiente);
+    heroUrl     = await subir(heroLogoImgPendiente);
+    navUrl      = await subir(navLogoImgPendiente);
+  } catch(err){
+    console.error('Error subiendo imágenes:', err);
+    mostrarToastError('⚠ No se pudieron subir las imágenes (' + esc(err.message) + ').<br>No se guardó ningún cambio.', 10000);
+    if(btnGuardar){ btnGuardar.disabled = false; btnGuardar.textContent = 'Guardar cambios'; }
+    return;
+  }
+
+  // ── 2) Leer valores ────────────────────────────────────
   C.rubro      = document.getElementById('ep-rubro').value.trim();
   C.ubicacion  = document.getElementById('ep-ubicacion').value.trim();
   // Textarea usa \n, HTML usa <br>
-  C.heroSubtitulo = document.getElementById('ep-hero-subtitulo').value.trim().replace(/\n/g,'<br>');
+  C.heroSubtitulo = esc(document.getElementById('ep-hero-subtitulo').value.trim()).replace(/\n/g,'<br>');
 
   C.nosotros.label  = document.getElementById('ep-nos-label').value.trim();
   C.nosotros.titulo = document.getElementById('ep-nos-titulo').value.trim();
@@ -2030,7 +2150,7 @@ async function guardarEditarPagina(){
     document.getElementById('ep-nos-p1').value.trim(),
     document.getElementById('ep-nos-p2').value.trim(),
     document.getElementById('ep-nos-p3').value.trim()
-  ].filter(p => p !== '');
+  ].filter(p => p !== '').map(esc);
   C.nosotros.slogan = document.getElementById('edit-nosotros-slogan').value.trim();
   C.nosotros.stats = [
     { num: document.getElementById('ep-stat1-num').value.trim(), label: document.getElementById('ep-stat1-label').value.trim() },
@@ -2048,32 +2168,21 @@ async function guardarEditarPagina(){
   C.contacto.ctaParrafo      = document.getElementById('ep-cta-parrafo').value.trim();
   C.contacto.ctaBoton        = document.getElementById('ep-cta-boton').value.trim();
 
-  if(nosotrosImgPendiente){
-    C._nosotrosImg = nosotrosImgPendiente;
-  }
-  if(heroLogoImgPendiente){
-    C._heroLogoImg = heroLogoImgPendiente;
-  }
+  if(nosotrosUrl) C._nosotrosImg = nosotrosUrl;
+  if(heroUrl)     C._heroLogoImg = heroUrl;
+  if(navUrl)      C._navLogoImg  = navUrl;
+  nosotrosImgPendiente = heroLogoImgPendiente = navLogoImgPendiente = null;
 
-  // ── Aplicar en vivo a la página ────────────────────────
+  // ── 3) Aplicar en vivo a la página ─────────────────────
   applyConfig();
-  // Imagen nosotros (si se cambió)
-  if(C._nosotrosImg){
-    const imgEl = document.querySelector('.about-img-placeholder img');
-    if(imgEl) imgEl.src = C._nosotrosImg;
-  }
-
   document.getElementById('edit-pagina-modal').classList.remove('active');
+  if(btnGuardar){ btnGuardar.disabled = false; btnGuardar.textContent = 'Guardar cambios'; }
   mostrarToast('Guardando…');
 
-  if(navLogoImgPendiente){
-    C._navLogoImg = navLogoImgPendiente;
-  }
-
-  // ── Persistir en Firebase ──────────────────────────────
+  // ── 4) Persistir en Firebase ───────────────────────────
   try {
     const ts = Date.now();
-    await CONFIG_REF.set({
+    const data = {
       rubro:        C.rubro,
       ubicacion:    C.ubicacion,
       heroSubtitulo:C.heroSubtitulo,
@@ -2083,15 +2192,147 @@ async function guardarEditarPagina(){
       contacto:     C.contacto,
       nosotrosImg:  C._nosotrosImg || null,
       heroLogoImg:  C._heroLogoImg || null,
-      navLogoImg: C._navLogoImg || null
-    });
+      navLogoImg:   C._navLogoImg || null
+    };
+    await CONFIG_REF.set(data);
     // Invalidar caché de otros dispositivos
     await META_REF.set({ lastModified: ts }, { merge: true });
-    try { localStorage.setItem('cache_ts', String(ts)); } catch(e) {}
+    try {
+      localStorage.setItem('cache_ts', String(ts));
+      localStorage.setItem('config_cache', JSON.stringify(data));
+    } catch(e) {}
     mostrarToast('Cambios guardados ✓');
   } catch(err){
     console.error('Error guardando configEditable:', err);
-    mostrarToast('⚠ Error al guardar. Revisá la conexión, recargar la página.');
+    mostrarToastError('⚠ Error al guardar. Revisá la conexión, recargar la página.', 7000);
+  }
+}
+
+// ════════════════════════════════════════════════════════
+//  ADMIN — Herramientas (Cloudinary, migración, índice)
+// ════════════════════════════════════════════════════════
+async function abrirModalHerramientas(){
+  document.getElementById('tools-modal').classList.add('active');
+  const estadoCld = document.getElementById('tools-cld-estado');
+  const estadoB64 = document.getElementById('tools-b64-estado');
+  estadoCld.textContent = 'Verificando…';
+  estadoB64.textContent = 'Verificando…';
+  try {
+    await esperarAdminListo();
+    const snap = await CLOUDINARY_REF.get();
+    const d = snap.exists ? snap.data() : null;
+    estadoCld.textContent = d && d.cloudName
+      ? `Configurado · cloud: ${d.cloudName} · preset: ${d.preset}`
+      : 'Sin configurar (se te va a pedir al subir la primera foto)';
+    const n = contarFotosBase64() + fotosBase64DePagina().length;
+    estadoB64.textContent = n
+      ? `Hay ${n} foto${n !== 1 ? 's' : ''} en formato viejo (base64) para migrar.`
+      : 'Todas las fotos ya están en Cloudinary ✓';
+  } catch(err){
+    estadoCld.textContent = 'No se pudo verificar: ' + err.message;
+    estadoB64.textContent = '';
+  }
+}
+
+function cerrarModalHerramientas(e){
+  if(e && e.target.id !== 'tools-modal') return;
+  document.getElementById('tools-modal').classList.remove('active');
+}
+
+async function cambiarConfigCloudinary(){
+  try {
+    await configurarCloudinary();
+    mostrarToast('Cloudinary configurado ✓');
+    abrirModalHerramientas();
+  } catch(err){
+    mostrarToastError('⚠ ' + esc(err.message), 5000);
+  }
+}
+
+// Imágenes de la página (logos / Nosotros) que siguen en base64
+function fotosBase64DePagina(){
+  const C = SITE_CONFIG;
+  return [
+    ['nosotrosImg', C._nosotrosImg],
+    ['heroLogoImg', C._heroLogoImg],
+    ['navLogoImg',  C._navLogoImg]
+  ].filter(([, v]) => esBase64(v));
+}
+
+// Sube a Cloudinary todas las fotos guardadas en base64 y reemplaza por URLs.
+// Se puede cortar y volver a ejecutar: retoma con lo que falte.
+async function migrarFotosACloudinary(){
+  const btn = document.getElementById('tools-btn-migrar');
+  const log = document.getElementById('tools-log');
+  try {
+    await esperarAdminListo();
+    const conFotos = productos.filter(p => {
+      const imgs = Array.isArray(p.imgs) && p.imgs.length ? p.imgs : [p.img];
+      return imgs.some(esBase64) || esBase64(p.img);
+    });
+    const dePagina = fotosBase64DePagina();
+    if(!conFotos.length && !dePagina.length){
+      log.textContent = 'No hay nada para migrar ✓';
+      return;
+    }
+    if(!confirm(`Se van a subir a Cloudinary las fotos de ${conFotos.length} producto(s)` +
+                (dePagina.length ? ` y ${dePagina.length} imagen(es) de la página` : '') +
+                '. ¿Continuar?')) return;
+
+    await obtenerCloudinary();
+    btn.disabled = true;
+    let hechos = 0;
+    for(const p of conFotos){
+      log.textContent = `Producto ${hechos + 1} de ${conFotos.length}: ${p.nombre}…`;
+      const imgs = Array.isArray(p.imgs) && p.imgs.length ? p.imgs : [p.img];
+      const urls = await subirFotosPendientes(imgs);
+      p.imgs = urls;
+      p.img  = urls[0];
+      // Se guarda producto por producto para no perder avance si algo falla
+      await PRODS_COL.doc(p.id).set(productoParaIndice(p));
+      hechos++;
+    }
+
+    if(dePagina.length){
+      log.textContent = 'Subiendo imágenes de la página…';
+      const C = SITE_CONFIG;
+      const cambios = {};
+      for(const [campo, valor] of dePagina){
+        cambios[campo] = await subirImagenCloudinary(valor);
+      }
+      if(cambios.nosotrosImg) C._nosotrosImg = cambios.nosotrosImg;
+      if(cambios.heroLogoImg) C._heroLogoImg = cambios.heroLogoImg;
+      if(cambios.navLogoImg)  C._navLogoImg  = cambios.navLogoImg;
+      await CONFIG_REF.set(cambios, { merge: true });
+      try { localStorage.removeItem('config_cache'); } catch(e) {}
+      applyConfig();
+    }
+
+    // Regenerar índice (ahora sí entra en un solo documento)
+    await commitCambios([]);
+    buildAllCarousels();
+    log.textContent = `Listo ✓ Se migraron ${hechos} producto(s)` + (dePagina.length ? ` y ${dePagina.length} imagen(es) de la página.` : '.');
+    mostrarToast('Migración completa ✓');
+  } catch(err){
+    console.error('Error migrando fotos:', err);
+    log.textContent = '⚠ Se interrumpió: ' + err.message + '. Podés volver a ejecutarla, retoma desde donde quedó.';
+  } finally {
+    if(btn) btn.disabled = false;
+  }
+}
+
+// Vuelve a leer la colección completa y regenera el índice que leen los visitantes
+async function reconstruirIndice(){
+  const log = document.getElementById('tools-log');
+  try {
+    log.textContent = 'Leyendo todos los productos…';
+    productos = await leerColeccionCompleta();
+    await commitCambios([]);
+    await guardarMetaEnFirebase();
+    buildAllCarousels();
+    log.textContent = `Índice regenerado con ${productos.length} productos ✓`;
+  } catch(err){
+    log.textContent = '⚠ Error: ' + err.message;
   }
 }
 
@@ -2162,12 +2403,12 @@ function ejecutarBusqueda(query){
       const cats = Array.isArray(p.tipos) ? p.tipos.join(' · ') : (p.tipo || '');
       card.innerHTML = `
         <div class="search-card-img">
-          <img src="${p.img}" alt="${p.nombre}">
+          <img src="${esc(cldUrl(p.img, CLD_THUMB))}" alt="${esc(p.nombre)}" loading="lazy">
         </div>
         <div class="search-card-info">
-          <div class="search-card-cat">${cats}</div>
-          <div class="search-card-name">${p.nombre}</div>
-          <div class="search-card-desc">${p.desc ? p.desc.substring(0,80)+'…' : ''}</div>
+          <div class="search-card-cat">${esc(cats)}</div>
+          <div class="search-card-name">${esc(p.nombre)}</div>
+          <div class="search-card-desc">${p.desc ? esc(p.desc.substring(0,80))+'…' : ''}</div>
         </div>
         <button class="search-card-btn">Ver</button>`;
       card.addEventListener('click', () => { cerrarBuscador(); openModal(p); });
@@ -2201,12 +2442,12 @@ function ejecutarBusqueda(query){
     const cats = Array.isArray(p.tipos) ? p.tipos.join(' · ') : (p.tipo || '');
     card.innerHTML = `
       <div class="search-card-img">
-        <img src="${p.img}" alt="${p.nombre}">
+        <img src="${esc(cldUrl(p.img, CLD_THUMB))}" alt="${esc(p.nombre)}" loading="lazy">
       </div>
       <div class="search-card-info">
-        <div class="search-card-cat">${cats}</div>
+        <div class="search-card-cat">${esc(cats)}</div>
         <div class="search-card-name">${resaltarPalabras(p.nombre, palabras)}</div>
-        <div class="search-card-desc">${p.desc ? p.desc.substring(0,80)+'…' : ''}</div>
+        <div class="search-card-desc">${p.desc ? esc(p.desc.substring(0,80))+'…' : ''}</div>
       </div>
       <button class="search-card-btn">Ver</button>`;
     card.addEventListener('click', () => { cerrarBuscador(); openModal(p); });
@@ -2215,9 +2456,9 @@ function ejecutarBusqueda(query){
 }
 
 function resaltarPalabras(texto, palabras){
-  let result = texto;
+  let result = esc(texto);
   palabras.forEach(w => {
-    const regex = new RegExp(`(${w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')})`, 'gi');
+    const regex = new RegExp(`(${esc(w).replace(/[.*+?^${}()|[\]\\]/g,'\\$&')})`, 'gi');
     result = result.replace(regex, '<mark>$1</mark>');
   });
   return result;
@@ -2245,7 +2486,15 @@ function toggleLoginPassword() {
 
 
 document.addEventListener('keydown', e => {
-  if(e.key === 'Escape') cerrarBuscador();
+  if(e.key !== 'Escape') return;
+  cerrarBuscador();
+  const modal = document.getElementById('modal');
+  if(modal.classList.contains('active')){
+    modal.classList.remove('active');
+    document.body.style.overflow = '';
+    resetModalZoom();
+  }
+  if(document.getElementById('cart-overlay').classList.contains('active')) toggleCarrito();
 });
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -2357,7 +2606,13 @@ function agregarAlCarrito(producto) {
     existente.cantidad += 1;
   } else {
     // Si no existe, lo agregamos con cantidad inicial de 1
-    carrito.push({ ...producto, cantidad: 1 });
+    carrito.push({
+      id: producto.id,
+      nombre: producto.nombre,
+      precio: producto.precio,
+      img: producto.img,
+      cantidad: 1
+    });
   }
 
   actualizarCarritoUI();
@@ -2383,7 +2638,21 @@ function eliminarDelCarrito(index) {
   actualizarCarritoUI();
 }
 
+// El carrito sobrevive a recargar la página (se guarda en este navegador)
+function guardarCarritoLocal(){
+  try { localStorage.setItem('carrito', JSON.stringify(carrito)); } catch(e) {}
+}
+
+function cargarCarritoLocal(){
+  try {
+    const data = JSON.parse(localStorage.getItem('carrito') || '[]');
+    if(Array.isArray(data)) carrito = data.filter(p => p && p.id && p.cantidad > 0);
+  } catch(e) {}
+  actualizarCarritoUI();
+}
+
 function actualizarCarritoUI() {
+  guardarCarritoLocal();
   const itemsContainer = document.getElementById('cart-items');
   const countBadge = document.getElementById('cart-count');
   const totalEl = document.getElementById('cart-total-price');
@@ -2398,6 +2667,17 @@ function actualizarCarritoUI() {
     countBadge.textContent = totalUnidades;
   } else {
     countBadge.style.display = 'none';
+  }
+
+  // Burbuja con el contador en el dock flotante mobile
+  const dockBadge = document.getElementById('dock-cart-count');
+  if (dockBadge) {
+    if (totalUnidades > 0) {
+      dockBadge.style.display = 'flex';
+      dockBadge.textContent = totalUnidades;
+    } else {
+      dockBadge.style.display = 'none';
+    }
   }
 
   // Lista vacía
@@ -2418,10 +2698,10 @@ function actualizarCarritoUI() {
     
     html += `
       <div class="cart-item">
-        <img src="${p.img}" class="cart-item-img">
+        <img src="${esc(cldUrl(p.img, CLD_THUMB))}" class="cart-item-img">
         <div class="cart-item-info">
-          <div class="cart-item-title">${p.nombre}</div>
-          <div class="cart-item-price">${p.precio} c/u</div>
+          <div class="cart-item-title">${esc(p.nombre)}</div>
+          <div class="cart-item-price">${esc(p.precio)} c/u</div>
           <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
             <button onclick="cambiarCantidad(${idx}, -1)" style="width:24px; height:24px; border:1px solid var(--detalles); background:transparent; cursor:pointer; border-radius:4px; display:flex; align-items:center; justify-content:center; color:var(--text); font-weight:bold; transition: background 0.2s;">-</button>
             <span style="font-size:13px; font-weight:600; width:18px; text-align:center; color:var(--text);">${p.cantidad}</span>
